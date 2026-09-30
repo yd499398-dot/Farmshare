@@ -478,15 +478,9 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal server error." });
 });
 
-// Replace lines from bootstrap() to the end with this:
 async function bootstrap() {
   try {
-    client = new MongoClient(mongoUri, {
-      tls: true,
-      tlsAllowInvalidCertificates: false,
-      serverSelectionTimeoutMS: 15000,
-    });
-    
+    client = new MongoClient(mongoUri);
     await client.connect();
     db = client.db(dbName);
 
@@ -507,14 +501,12 @@ async function bootstrap() {
       await collections.equipment.insertMany(SEED_EQUIPMENT.map(x => ({ ...x, createdAt: iso(), updatedAt: iso() })));
     }
     console.log("[FarmShare] MongoDB connected successfully: " + dbName);
-  } catch (err: any) {
-    console.error("[FarmShare] MongoDB connection warning:", err.message);
+  } catch (error: any) {
+    console.error("[FarmShare] MongoDB connection error:", error.message || error);
   }
 }
 
-// Start HTTP server FIRST so Render immediately detects open port
 app.listen(PORT, "0.0.0.0", () => {
   console.log("[FarmShare] API listening on port " + PORT);
-  // Connect to DB asynchronously after port is bound
   bootstrap();
 });
