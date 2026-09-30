@@ -13,7 +13,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 10000);
 const JWT_SECRET = process.env.JWT_SECRET || "farmshare_production_secret_key_2026_secure";
 
-// Read exclusively from environment variable (keeps GitHub Secret Scanning happy)
+// Initialize Resend safely from environment variables (GitHub secret scanning compliant)
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 
 const mongoUri = process.env.MONGODB_URI;
@@ -107,6 +107,7 @@ function publicUser(user: any) {
   return safe;
 }
 
+// Resend HTTPS API dispatcher
 async function sendEmail(to: string, subject: string, html: string, text: string) {
   try {
     const { data, error } = await resend.emails.send({
@@ -510,7 +511,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal server error." });
 });
 
-// Bind HTTP port immediately
+// Bind HTTP port immediately so Render detects it without waiting for DB handshake
 app.listen(PORT, "0.0.0.0", () => {
   console.log("[FarmShare] API listening on port " + PORT);
   startDatabase();
