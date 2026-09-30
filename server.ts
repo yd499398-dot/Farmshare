@@ -23,7 +23,6 @@ if (!mongoUri) {
 app.set("trust proxy", 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
-// Permissive CORS ensures Vercel never gets blocked
 app.use(cors({
   origin: true,
   credentials: true,
@@ -146,28 +145,32 @@ function calculatePrice(pricePerDay: number, days: number, deliveryFee = 0, secu
   };
 }
 
-async function bootstrap() {
-  client = new MongoClient(mongoUri!);
-  await client.connect();
-  db = client.db(dbName);
+async function startDatabase() {
+  try {
+    client = new MongoClient(mongoUri!);
+    await client.connect();
+    db = client.db(dbName);
 
-  for (const name of ["users", "equipment", "rentals", "reviews", "saved", "verification_codes", "settings", "audit_logs"]) {
-    collections[name] = db.collection(name);
+    for (const name of ["users", "equipment", "rentals", "reviews", "saved", "verification_codes", "settings", "audit_logs"]) {
+      collections[name] = db.collection(name);
+    }
+
+    await collections.users.createIndex({ email: 1 }, { unique: true });
+    await collections.users.createIndex({ phone: 1 }, { sparse: true });
+    await collections.verification_codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await collections.saved.createIndex({ userId: 1, equipmentId: 1 }, { unique: true });
+    await collections.settings.updateOne({ _id: "platform" }, { $setOnInsert: INITIAL_SETTINGS }, { upsert: true });
+
+    const settings = await collections.settings.findOne({ _id: "platform" });
+    (globalThis as any).__farmshareSettings = settings || INITIAL_SETTINGS;
+
+    if ((await collections.equipment.countDocuments()) === 0) {
+      await collections.equipment.insertMany(SEED_EQUIPMENT.map(x => ({ ...x, createdAt: iso(), updatedAt: iso() })));
+    }
+    console.log("[FarmShare] MongoDB connected successfully: " + dbName);
+  } catch (error: any) {
+    console.error("[FarmShare] MongoDB connection note:", error?.message || error);
   }
-
-  await collections.users.createIndex({ email: 1 }, { unique: true });
-  await collections.users.createIndex({ phone: 1 }, { sparse: true });
-  await collections.verification_codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-  await collections.saved.createIndex({ userId: 1, equipmentId: 1 }, { unique: true });
-  await collections.settings.updateOne({ _id: "platform" }, { $setOnInsert: INITIAL_SETTINGS }, { upsert: true });
-
-  const settings = await collections.settings.findOne({ _id: "platform" });
-  (globalThis as any).__farmshareSettings = settings || INITIAL_SETTINGS;
-
-  if ((await collections.equipment.countDocuments()) === 0) {
-    await collections.equipment.insertMany(SEED_EQUIPMENT.map(x => ({ ...x, createdAt: iso(), updatedAt: iso() })));
-  }
-  console.log("[FarmShare] MongoDB connected successfully: " + dbName);
 }
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok", database: "mongodb", timestamp: iso() }));
@@ -212,7 +215,7 @@ app.post("/api/auth/send-verification-code", async (req, res) => {
   });
 
   const subject = purpose === "reset" ? (code + " is your FarmShare password reset code") : (code + " is your FarmShare verification code");
-  const html = "<div style=\"font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;border:1px solid #e7e5e4;border-radius:16px\"><h2 style=\"color:#166534\">FarmShare Verification</h2><p>Hello " + name.replace(/[<>]/g, "") + ",</p><p>Your verification code is:</p><div style=\"font-size:34px;font-weight:800;letter-spacing:8px;color:#15803d;text-align:center;padding:18px;background:#f0fdf4;border-radius:12px\">" + code + "</div><p>This code expires in 10 minutes.</p></div>";
+  const html = "<div style=\"font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;border:1px solid #e7e5e4;border-radius:16px\"><h2 style=\"color:#166534\">FarmShare Verification</h2><p>Hello " + name.replace(/[<>]/g, "") + ",</p><p>Your code is:</p><div style=\"font-size:34px;font-weight:800;letter-spacing:8px;color:#15803d;text-align:center;padding:18px;background:#f0fdf4;border-radius:12px\">" + code + "</div><p>Expires in 10 minutes.</p></div>";
 
   try {
     const sent = await sendEmail(email, subject, html, "Your FarmShare code is " + code + ". It expires in 10 minutes.");
@@ -478,35 +481,8 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal server error." });
 });
 
-async function bootstrap() {
-  try {
-    client = new MongoClient(mongoUri);
-    await client.connect();
-    db = client.db(dbName);
-
-    for (const name of ["users", "equipment", "rentals", "reviews", "saved", "verification_codes", "settings", "audit_logs"]) {
-      collections[name] = db.collection(name);
-    }
-
-    await collections.users.createIndex({ email: 1 }, { unique: true });
-    await collections.users.createIndex({ phone: 1 }, { sparse: true });
-    await collections.verification_codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-    await collections.saved.createIndex({ userId: 1, equipmentId: 1 }, { unique: true });
-    await collections.settings.updateOne({ _id: "platform" }, { $setOnInsert: INITIAL_SETTINGS }, { upsert: true });
-
-    const settings = await collections.settings.findOne({ _id: "platform" });
-    (globalThis as any).__farmshareSettings = settings || INITIAL_SETTINGS;
-
-    if ((await collections.equipment.countDocuments()) === 0) {
-      await collections.equipment.insertMany(SEED_EQUIPMENT.map(x => ({ ...x, createdAt: iso(), updatedAt: iso() })));
-    }
-    console.log("[FarmShare] MongoDB connected successfully: " + dbName);
-  } catch (error: any) {
-    console.error("[FarmShare] MongoDB connection error:", error.message || error);
-  }
-}
-
+// Bind HTTP port immediately so Render detects it without waiting for DB handshake
 app.listen(PORT, "0.0.0.0", () => {
   console.log("[FarmShare] API listening on port " + PORT);
-  bootstrap();
+  startDatabase();
 });
