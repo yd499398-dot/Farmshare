@@ -107,15 +107,31 @@ function publicUser(user: any) {
 async function sendEmail(to: string, subject: string, html: string, text: string) {
   const user = normalizeEmail(process.env.GMAIL_USER || "");
   const pass = String(process.env.GMAIL_APP_PASS || "").replace(/\s+/g, "");
-  if (!user || !pass) return false;
+  if (!user || !pass) {
+    console.error("[FarmShare Email] Missing GMAIL_USER or GMAIL_APP_PASS");
+    return false;
+  }
+
   const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user, pass },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true, // Use SSL/TLS
+    auth: {
+      user: user,
+      pass: pass
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
   });
-  await transporter.sendMail({ from: process.env.EMAIL_FROM || ("FarmShare <" + user + ">"), to, subject, text, html });
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || ("FarmShare <" + user + ">"),
+    to: to,
+    subject: subject,
+    text: text,
+    html: html
+  });
   return true;
 }
 
