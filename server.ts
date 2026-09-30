@@ -1,3 +1,4 @@
+```typescript
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -11,8 +12,6 @@ import { MongoClient, Db, Collection } from 'mongodb';
 
 const app = express();
 const PORT = Number(process.env.PORT || 10000);
-
-// Safe fallback prevents immediate container crash on startup
 const JWT_SECRET = process.env.JWT_SECRET || 'farmshare_production_secret_key_2026_secure';
 
 const mongoUri = process.env.MONGODB_URI;
@@ -22,7 +21,6 @@ if (!mongoUri) {
   throw new Error('MONGODB_URI is required.');
 }
 
-// Built-in whitelist covering Vercel production and local previews
 const defaultOrigins = [
   'http://localhost:5173',
   'http://localhost:4173',
@@ -41,11 +39,9 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow server-to-server requests, wildcard configurations, or whitelisted domains
     if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    // Also allow preview subdomains on Vercel
     if (origin.endsWith('.vercel.app')) {
       return callback(null, true);
     }
