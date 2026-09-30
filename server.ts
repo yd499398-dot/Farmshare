@@ -478,9 +478,43 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal server error." });
 });
 
-bootstrap().then(() => {
-  app.listen(PORT, "0.0.0.0", () => console.log("[FarmShare] API listening on port " + PORT));
-}).catch(error => {
-  console.error("[FarmShare] Startup failed:", error);
-  process.exit(1);
+// Replace lines from bootstrap() to the end with this:
+async function bootstrap() {
+  try {
+    client = new MongoClient(mongoUri, {
+      tls: true,
+      tlsAllowInvalidCertificates: false,
+      serverSelectionTimeoutMS: 15000,
+    });
+    
+    await client.connect();
+    db = client.db(dbName);
+
+    for (const name of ["users", "equipment", "rentals", "reviews", "saved", "verification_codes", "settings", "audit_logs"]) {
+      collections[name] = db.collection(name);
+    }
+
+    await collections.users.createIndex({ email: 1 }, { unique: true });
+    await collections.users.createIndex({ phone: 1 }, { sparse: true });
+    await collections.verification_codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await collections.saved.createIndex({ userId: 1, equipmentId: 1 }, { unique: true });
+    await collections.settings.updateOne({ _id: "platform" }, { $setOnInsert: INITIAL_SETTINGS }, { upsert: true });
+
+    const settings = await collections.settings.findOne({ _id: "platform" });
+    (globalThis as any).__farmshareSettings = settings || INITIAL_SETTINGS;
+
+    if ((await collections.equipment.countDocuments()) === 0) {
+      await collections.equipment.insertMany(SEED_EQUIPMENT.map(x => ({ ...x, createdAt: iso(), updatedAt: iso() })));
+    }
+    console.log("[FarmShare] MongoDB connected successfully: " + dbName);
+  } catch (err: any) {
+    console.error("[FarmShare] MongoDB connection warning:", err.message);
+  }
+}
+
+// Start HTTP server FIRST so Render immediately detects open port
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("[FarmShare] API listening on port " + PORT);
+  // Connect to DB asynchronously after port is bound
+  bootstrap();
 });
