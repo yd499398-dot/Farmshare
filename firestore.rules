@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Health / connection test document
+    match /test/{docId} {
+      allow read, write: if isValidId(docId);
+    }
+
+    // Equipment catalog
+    match /equipment/{equipmentId} {
+      allow get, list: if true;
+      allow create: if isValidId(equipmentId) &&
+        incoming().name is string && incoming().name.size() <= 120 &&
+        incoming().category is string && incoming().category.size() <= 50 &&
+        incoming().price is number && incoming().price > 0 &&
+        incoming().location is string && incoming().location.size() <= 150;
+      allow update: if isValidId(equipmentId) &&
+        (!isSignedIn() || resource.data.ownerId == request.auth.uid);
+      allow delete: if isValidId(equipmentId) &&
+        isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Rentals / reservations
+    match /rentals/{rentalId} {
+      allow get: if isValidId(rentalId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.ownerId == request.auth.uid
+      );
+      allow list: if !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.ownerId == request.auth.uid;
+      allow create: if isValidId(rentalId) &&
+        incoming().equipmentName is string &&
+        incoming().startDate is string &&
+        incoming().endDate is string &&
+        incoming().totalCost is number;
+      allow update: if isValidId(rentalId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.ownerId == request.auth.uid
+      );
+      allow delete: if isValidId(rentalId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.ownerId == request.auth.uid
+      );
+    }
+
+    // Equipment reviews
+    match /reviews/{reviewId} {
+      allow get, list: if true;
+      allow create: if isValidId(reviewId) &&
+        incoming().rating is number && incoming().rating >= 1 && incoming().rating <= 5 &&
+        incoming().text is string && incoming().text.size() <= 500 &&
+        incoming().author is string;
+      allow update, delete: if isValidId(reviewId) && (
+        isSignedIn() && resource.data.userId == request.auth.uid
+      );
+    }
+
+    // Saved items
+    match /saved/{savedId} {
+      allow get: if isValidId(savedId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid
+      );
+      allow list: if !isSignedIn() || resource.data.userId == request.auth.uid;
+      allow create: if isValidId(savedId) &&
+        incoming().equipmentId is string;
+      allow delete: if isValidId(savedId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid
+      );
+    }
+
+    // User profiles & manual credentials collection
+    match /users/{userId} {
+      allow get, list: if isValidId(userId);
+      allow create, update: if isValidId(userId);
+      allow delete: if isValidId(userId);
+    }
+
+    // Email registration OTP codes
+    match /verification_codes/{codeId} {
+      allow get, list: if isValidId(codeId);
+      allow create, update: if isValidId(codeId);
+      allow delete: if isValidId(codeId);
+    }
+  }
+}

@@ -1,0 +1,252 @@
+{
+  "entities": {
+    "Equipment": {
+      "title": "Equipment",
+      "description": "Farm equipment available for rental",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the equipment listing"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name or title of the equipment",
+          "maxLength": 120
+        },
+        "category": {
+          "type": "string",
+          "description": "Category such as Tractors, Harvesters, Tillage, Seeding, Irrigation",
+          "maxLength": 50
+        },
+        "price": {
+          "type": "number",
+          "description": "Daily rental price in Rupees"
+        },
+        "location": {
+          "type": "string",
+          "description": "Farm or regional location and distance",
+          "maxLength": 150
+        },
+        "owner": {
+          "type": "string",
+          "description": "Display name of equipment owner",
+          "maxLength": 100
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "User ID of the equipment owner",
+          "maxLength": 128
+        },
+        "rating": {
+          "type": "number",
+          "description": "Average rating out of 5"
+        },
+        "image": {
+          "type": "string",
+          "description": "Image URL of the machinery"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of machinery condition and specs",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp in ISO format"
+        }
+      },
+      "required": ["id", "name", "category", "price", "location", "owner", "ownerId", "rating", "image", "description"]
+    },
+    "Rental": {
+      "title": "Rental",
+      "description": "Equipment booking and rental transaction",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Rental transaction identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the renting farmer",
+          "maxLength": 128
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Email of the renting farmer",
+          "maxLength": 150
+        },
+        "equipmentId": {
+          "type": "string",
+          "description": "ID of rented equipment"
+        },
+        "equipmentName": {
+          "type": "string",
+          "description": "Name of rented equipment",
+          "maxLength": 120
+        },
+        "startDate": {
+          "type": "string",
+          "description": "Rental start date YYYY-MM-DD",
+          "maxLength": 20
+        },
+        "endDate": {
+          "type": "string",
+          "description": "Rental end date YYYY-MM-DD",
+          "maxLength": 20
+        },
+        "totalCost": {
+          "type": "number",
+          "description": "Total cost in INR"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current status of the booking",
+          "enum": ["pending", "accepted", "active", "completed", "declined", "cancelled"]
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the equipment owner",
+          "maxLength": 128
+        },
+        "ownerName": {
+          "type": "string",
+          "description": "Name of the equipment owner",
+          "maxLength": 100
+        },
+        "renterName": {
+          "type": "string",
+          "description": "Name of the renting farmer",
+          "maxLength": 100
+        },
+        "renterPhone": {
+          "type": "string",
+          "description": "Contact number of the renting farmer",
+          "maxLength": 50
+        },
+        "acceptedAt": {
+          "type": "string",
+          "description": "Timestamp when owner accepted the rental",
+          "maxLength": 50
+        },
+        "hasReviewed": {
+          "type": "boolean",
+          "description": "Whether tenant has submitted a review"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Booking creation timestamp"
+        }
+      },
+      "required": ["id", "userId", "equipmentId", "equipmentName", "startDate", "endDate", "totalCost", "status"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Customer feedback and rating for equipment",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Review unique identifier"
+        },
+        "equipmentId": {
+          "type": "string",
+          "description": "ID of equipment reviewed"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of reviewer",
+          "maxLength": 128
+        },
+        "rating": {
+          "type": "number",
+          "description": "Numerical rating 1 through 5"
+        },
+        "text": {
+          "type": "string",
+          "description": "Review commentary",
+          "maxLength": 500
+        },
+        "author": {
+          "type": "string",
+          "description": "Display name of reviewer",
+          "maxLength": 100
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of review",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "equipmentId", "userId", "rating", "text", "author", "date"]
+    },
+    "SavedItem": {
+      "title": "SavedItem",
+      "description": "Farmer bookmarked equipment item",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Saved item entry ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of farmer saving the equipment",
+          "maxLength": 128
+        },
+        "equipmentId": {
+          "type": "string",
+          "description": "Referenced equipment ID"
+        }
+      },
+      "required": ["id", "userId", "equipmentId"]
+    },
+    "VerificationCode": {
+      "title": "VerificationCode",
+      "description": "Email registration verification codes with expiry",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "code": {
+          "type": "string",
+          "description": "6-digit OTP verification code"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "Expiration ISO timestamp"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation ISO timestamp"
+        }
+      },
+      "required": ["email", "code", "expiresAt"]
+    }
+  },
+  "firestore": {
+    "/equipment/{equipmentId}": {
+      "schema": "Equipment",
+      "description": "Community farm equipment shared for rental"
+    },
+    "/rentals/{rentalId}": {
+      "schema": "Rental",
+      "description": "Rental reservations made by farmers"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Feedback and star ratings for rented equipment"
+    },
+    "/saved/{savedId}": {
+      "schema": "SavedItem",
+      "description": "Farmer saved equipment items"
+    },
+    "/verification_codes/{codeId}": {
+      "schema": "VerificationCode",
+      "description": "Email OTP verification codes"
+    }
+  }
+}

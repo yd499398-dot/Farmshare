@@ -1,0 +1,6 @@
+{
+  "name": "AgriShare",
+  "description": "Farm Equipment & Tool Sharing Portal for local farmers to rent machinery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
