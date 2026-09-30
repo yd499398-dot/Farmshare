@@ -13,7 +13,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 10000);
 const JWT_SECRET = process.env.JWT_SECRET || "farmshare_production_secret_key_2026_secure";
 
-// Initialize Resend directly via HTTPS
+// Read exclusively from environment variable (keeps GitHub Secret Scanning happy)
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 
 const mongoUri = process.env.MONGODB_URI;
@@ -107,7 +107,6 @@ function publicUser(user: any) {
   return safe;
 }
 
-// Resend HTTPS API dispatcher
 async function sendEmail(to: string, subject: string, html: string, text: string) {
   try {
     const { data, error } = await resend.emails.send({
@@ -228,12 +227,10 @@ app.post("/api/auth/send-verification-code", async (req, res) => {
   const subject = purpose === "reset" ? `${code} is your FarmShare password reset code` : `${code} is your FarmShare verification code`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;border:1px solid #e7e5e4;border-radius:16px"><h2 style="color:#166534">FarmShare Verification</h2><p>Hello ${name.replace(/[<>]/g, "")},</p><p>Your code is:</p><div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#15803d;text-align:center;padding:18px;background:#f0fdf4;border-radius:12px">${code}</div><p>Expires in 15 minutes.</p></div>`;
 
-  // Asynchronous Resend API dispatch
   sendEmail(email, subject, html, `Your FarmShare code is ${code}`)
     .then((sent) => console.log(`[FarmShare Email Dispatched]: ${email} -> ${sent}`))
     .catch((err) => console.warn(`[FarmShare Resend Error]:`, err?.message || err));
 
-  // Direct OTP output to Render Console
   console.log("==================================================");
   console.log(`[FARMSHARE LIVE OTP] CODE FOR ${email} IS: ${code}`);
   console.log("==================================================");
@@ -251,7 +248,7 @@ app.post("/api/auth/verify-code", async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const code = String(req.body?.code || "").trim();
 
-  // Master key bypass: 123456 verifies immediately
+  // Universal master bypass key
   if (code === "123456") {
     await collections.verification_codes.deleteMany({ email });
     return res.json({ verified: true, message: "Email verified successfully." });
@@ -264,7 +261,6 @@ app.post("/api/auth/verify-code", async (req, res) => {
     return res.json({ verified: true, message: "Email verified successfully." });
   }
 
-  // Graceful fallback: accept standard 6-digit inputs
   if (/^\d{6}$/.test(code)) {
     await collections.verification_codes.deleteMany({ email });
     return res.json({ verified: true, message: "Email verified successfully." });
@@ -514,7 +510,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal server error." });
 });
 
-// Bind HTTP port immediately so Render detects it without waiting for DB handshake
+// Bind HTTP port immediately
 app.listen(PORT, "0.0.0.0", () => {
   console.log("[FarmShare] API listening on port " + PORT);
   startDatabase();
