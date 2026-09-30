@@ -1,3 +1,15 @@
+315 | ...ayName: req.body?.displayName \vert{}\vert{} user.displayName,...
+```[cite: 24]
+
+Below is the clean `server.ts` file without any template strings or special characters that could cause formatting corruption.
+
+---
+
+### Step 1: Copy and Paste the Entire `server.ts`
+
+Replace the entire content of `server.ts` with this code:
+
+```typescript
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -11,19 +23,18 @@ import { MongoClient, Db, Collection } from 'mongodb';
 
 const app = express();
 const PORT = Number(process.env.PORT || 10000);
-const JWT_SECRET = process.env.JWT_SECRET || 'farmshare_jwt_secret_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'farmshare_production_secret_key_2026_secure';
 
 const mongoUri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB_NAME || 'farmshare';
 if (!mongoUri) {
-  console.error('[FarmShare] MONGODB_URI is required.');
+  console.error('[FarmShare] FATAL: MONGODB_URI environment variable is missing.');
   throw new Error('MONGODB_URI is required.');
 }
 
 app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
-// Fully permissive, crash-free CORS configuration
 app.use(cors({
   origin: true,
   credentials: true,
@@ -40,7 +51,7 @@ const collections = {} as Record<string, Collection<any>>;
 
 const now = () => new Date();
 const iso = () => new Date().toISOString();
-const makeId = (prefix: string) => `${prefix}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+const makeId = (prefix: string) => prefix + '_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
 const normalizeEmail = (email: string) => String(email || '').trim().toLowerCase();
 const hashCode = (code: string) => crypto.createHash('sha256').update(code + ':' + JWT_SECRET).digest('hex');
 
@@ -116,7 +127,7 @@ function calculatePrice(pricePerDay: number, days: number, deliveryFee = 0, secu
   const base = Math.round(pricePerDay * 100) * rentalDays;
   const delivery = Math.round(deliveryFee * 100);
   const deposit = Math.round(securityDeposit * 100);
-  const rate = Number(settings.categoryRates?.[category] ?? settings.defaultCommissionRate ?? 2.5);
+  const rate = Number(settings.categoryRates?.[category] || settings.defaultCommissionRate || 2.5);
   const commission = Math.round(base * rate / 100);
   const tax = Math.round(commission * Number(settings.gstRatePercent || 18) / 100);
   const total = base + delivery + deposit + commission + tax;
@@ -179,7 +190,7 @@ app.get('/api/system/status', async (_req, res) => {
 app.get('/api/auth/check-user', async (req, res) => {
   const email = normalizeEmail(String(req.query.email || ''));
   if (!email) return res.status(400).json({ exists: false, error: 'Email is required.' });
-  res.json({ exists: !!(await collections.users.findOne({ email })) });
+  res.json({ exists: Boolean(await collections.users.findOne({ email })) });
 });
 
 app.post('/api/auth/send-verification-code', async (req, res) => {
@@ -312,7 +323,7 @@ app.post('/api/auth/google-profile', async (req, res) => {
 
   await collections.users.updateOne(
     { email },
-    { $set: { ...user, displayName: req.body?.displayName \vert{}\vert{} user.displayName, photoURL: req.body?.photoURL \vert{}\vert{} user.photoURL, updatedAt: iso() }, $setOnInsert: { email } },
+    { $set: { ...user, displayName: (req.body?.displayName || user.displayName), photoURL: (req.body?.photoURL || user.photoURL), updatedAt: iso() }, $setOnInsert: { email } },
     { upsert: true }
   );
 
@@ -451,7 +462,7 @@ app.get('/api/marketplace/commission', async (_req, res) => res.json({ success: 
 
 app.post('/api/marketplace/commission', auth, adminOnly, async (req: AuthRequest, res) => {
   const current = await collections.settings.findOne({ _id: 'platform' }) || INITIAL_SETTINGS;
-  const newRate = Math.max(2.5, Number(req.body?.defaultRate ?? current.defaultCommissionRate));
+  const newRate = Math.max(2.5, Number(req.body?.defaultRate || current.defaultCommissionRate));
   const next = { ...current, defaultCommissionRate: newRate, feeModel: req.body?.feeModel || current.feeModel, updatedAt: iso() };
   await collections.settings.replaceOne({ _id: 'platform' }, next, { upsert: true });
   (globalThis as any).__farmshareSettings = next;
