@@ -6,33 +6,38 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "npm run build:client && npm run build:server",
+    "build:render": "npm run build:server",
     "start": "node dist/server.cjs",
+    "start:server": "node dist/server.cjs",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "build:client": "vite build",
     "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "esbuild": "^0.28.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.1.0",
     "firebase": "^10.12.0",
     "framer-motion": "^13.2.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.344.0",
+    "mongodb": "^6.20.0",
     "motion": "^13.2.0",
     "nodemailer": "^10.0.10",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "recharts": "^3.10.1",
-    "bcryptjs": "^3.0.2",
-    "cors": "^2.8.5",
-    "express-rate-limit": "^8.1.0",
-    "helmet": "^8.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "mongodb": "^6.20.0",
-    "dotenv": "^17.2.2"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
@@ -40,7 +45,6 @@
     "@typescript-eslint/parser": "^8.70.1",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
-    "esbuild": "^0.28.2",
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.6",
@@ -48,9 +52,7 @@
     "tailwindcss": "^3.4.4",
     "tsx": "^4.23.13",
     "typescript": "^5.2.2",
-    "vite": "^5.2.0",
-    "@types/cors": "^2.8.19",
-    "@types/jsonwebtoken": "^9.0.10"
+    "vite": "^5.2.0"
   },
   "engines": {
     "node": ">=20"
