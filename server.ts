@@ -1,288 +1,299 @@
-import express from "express";
-import path from "path";
-import nodemailer from "nodemailer";
-import { createServer as createViteServer } from "vite";
-import { marketplaceRouter } from "./src/server/marketplaceRouter";
+import 'dotenv/config';
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import nodemailer from 'nodemailer';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { MongoClient, Db, Collection } from 'mongodb';
 
-// Automatically load local .env file if present
-try {
-  if (typeof process.loadEnvFile === "function") {
-    process.loadEnvFile();
+const app = express();
+const PORT = Number(process.env.PORT || 10000);
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('JWT_SECRET is required.');
+
+const mongoUri = process.env.MONGODB_URI;
+const dbName = process.env.MONGODB_DB_NAME || 'farmshare';
+if (!mongoUri) throw new Error('MONGODB_URI is required.');
+
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:4173')
+  .split(',').map(v => v.trim()).filter(Boolean);
+
+app.set('trust proxy', 1);
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(cors({ origin: (origin, callback) => {
+  if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) return callback(null, true);
+  return callback(new Error('CORS origin not allowed'));
+}, credentials: false }));
+app.use(express.json({ limit: '1mb' }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false }));
+
+let db: Db;
+let client: MongoClient;
+const collections = {} as Record<string, Collection<any>>;
+
+const now = () => new Date();
+const iso = () => new Date().toISOString();
+const makeId = (prefix: string) => `${prefix}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+const normalizeEmail = (email: string) => String(email || '').trim().toLowerCase();
+const hashCode = (code: string) => crypto.createHash('sha256').update(`${code}:${process.env.JWT_SECRET}`).digest('hex');
+
+const INITIAL_SETTINGS = {
+  _id: 'platform',
+  defaultCommissionRate: 2.5,
+  feeModel: 'add_to_customer',
+  gstRatePercent: 18,
+  minPayoutAmountINR: 500,
+  categoryRates: {
+    Tractors: 2.5, 'Farm Vehicles': 2.5, 'Harvesting Equipment': 3,
+    'Agricultural Machinery': 2.5, 'Tools & Equipment': 2, Land: 2.5,
+    Storage: 2.5, 'Irrigation Equipment': 2, 'Farming Services': 3, Other: 2.5
+  },
+  createdAt: iso(), updatedAt: iso()
+};
+
+const SEED_EQUIPMENT = [
+  { id: 1, name: 'John Deere 5050D Tractor', category: 'Tractors', price: 4200, location: 'Springfield Farm, 5 miles away', address: 'Plot 14, Springfield Agro Yard, Near GT Canal Road, District 4', owner: 'Robert K.', ownerId: 'seed_robert', ownerPhone: '+91 98251 44102', ownerEmail: 'robert.k@springfieldfarm.com', rating: 4.8, image: 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?auto=format&fit=crop&w=800&q=80', description: 'Reliable 50 HP tractor suitable for heavy tillage and haulage. Well maintained and regularly serviced.' },
+  { id: 2, name: 'Heavy Duty Disc Harrow', category: 'Tillage', price: 1700, location: "Miller's Ranch, 12 miles away", address: "Miller's Agricultural Yard, North Canal Bypass, Sector 9", owner: 'Sarah M.', ownerId: 'seed_sarah', ownerPhone: '+91 98762 11093', ownerEmail: 'sarah.m@farms.in', rating: 4.5, image: 'https://images.unsplash.com/photo-1589923188651-268a9765e432?auto=format&fit=crop&w=800&q=80', description: 'Perfect for breaking up virgin land and chopping up crop residue.' },
+  { id: 3, name: 'Combine Harvester S700', category: 'Harvesters', price: 16500, location: 'Oakhaven Fields, 8 miles away', address: 'Oakhaven Fields, Agro Complex 3, Highway 27 Junction', owner: 'Jim B.', ownerId: 'seed_jim', ownerPhone: '+91 94280 55431', ownerEmail: 'jim.b@harvesters.in', rating: 4.9, image: 'https://images.unsplash.com/photo-1589923188900-85dae523342b?auto=format&fit=crop&w=800&q=80', description: 'High-capacity automated combine harvester. Excellent for large-scale wheat and corn harvesting.' },
+  { id: 4, name: 'Precision Seed Drill', category: 'Seeding', price: 2900, location: 'Pine Valley, 3 miles away', address: 'Pine Valley Agro Depot, Village Rampur Post', owner: 'Elena W.', ownerId: 'seed_elena', ownerPhone: '+91 99042 77819', ownerEmail: 'elena.w@agri.in', rating: 4.7, image: 'https://images.unsplash.com/photo-1594771804886-a933bb2d609b?auto=format&fit=crop&w=800&q=80', description: 'Ensures uniform seed placement at precise depths. Greatly improves germination rates.' },
+  { id: 5, name: 'Portable Irrigation Pump', category: 'Irrigation', price: 1250, location: 'Riverdale Farms, 6 miles away', address: 'Riverdale Pump House, Canal Gate 4, East Bank', owner: 'Tom H.', ownerId: 'seed_tom', ownerPhone: '+91 97123 88904', ownerEmail: 'tom.h@irrigation.in', rating: 4.2, image: 'https://images.unsplash.com/photo-1560493676-04071c5f467b?auto=format&fit=crop&w=800&q=80', description: 'Gas-powered portable water pump. Moves up to 500 gallons per minute.' },
+  { id: 6, name: 'Compact Utility Tractor', category: 'Tractors', price: 3300, location: 'Green Acres, 2 miles away', address: 'Green Acres Farmstead, Ring Road East, Near Agro Mandi', owner: 'Lisa T.', ownerId: 'seed_lisa', ownerPhone: '+91 98980 23456', ownerEmail: 'lisa.t@farmland.in', rating: 4.6, image: 'https://images.unsplash.com/photo-1534073133331-c4b62a557083?auto=format&fit=crop&w=800&q=80', description: 'Versatile compact tractor ideal for small farms, landscaping, and loader work.' }
+];
+
+interface AuthRequest extends Request { user?: { uid: string; email: string; role: string; displayName?: string } }
+const auth = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET) as any;
+    next();
+  } catch { return res.status(401).json({ error: 'Session expired. Please sign in again.' }); }
+};
+const adminOnly = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required.' });
+  next();
+};
+
+function tokenFor(user: any) {
+  return jwt.sign({ uid: user.uid, email: user.email, role: user.role, displayName: user.displayName }, JWT_SECRET, { expiresIn: '7d' });
+}
+function publicUser(user: any) {
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+
+async function sendEmail(to: string, subject: string, html: string, text: string) {
+  const user = normalizeEmail(process.env.GMAIL_USER || '');
+  const pass = String(process.env.GMAIL_APP_PASS || '').replace(/\s+/g, '');
+  if (!user || !pass) return false;
+  const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user, pass }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 10000 });
+  await transporter.sendMail({ from: process.env.EMAIL_FROM || `FarmShare <${user}>`, to, subject, text, html });
+  return true;
+}
+
+function calculatePrice(pricePerDay: number, days: number, deliveryFee = 0, securityDeposit = 0, category = 'Other') {
+  const settings = (globalThis as any).__farmshareSettings || INITIAL_SETTINGS;
+  const rentalDays = Math.max(1, Number(days) || 1);
+  const base = Math.round(pricePerDay * 100) * rentalDays;
+  const delivery = Math.round(deliveryFee * 100);
+  const deposit = Math.round(securityDeposit * 100);
+  const rate = Number(settings.categoryRates?.[category] ?? settings.defaultCommissionRate ?? 2.5);
+  const commission = Math.round(base * rate / 100);
+  const tax = Math.round(commission * Number(settings.gstRatePercent || 18) / 100);
+  const total = base + delivery + deposit + commission + tax;
+  return { rentalDays, baseAmount: base / 100, deliveryFee: delivery / 100, securityDeposit: deposit / 100, commissionRate: rate, commissionAmount: commission / 100, taxAmount: tax / 100, totalCustomerPayable: total / 100, ownerGrossAmount: (base + delivery) / 100, ownerCommissionDeducted: 0, ownerNetAmount: (base + delivery) / 100, feeModel: 'add_to_customer' };
+}
+
+async function bootstrap() {
+  client = new MongoClient(mongoUri!);
+  await client.connect();
+  db = client.db(dbName);
+  for (const name of ['users', 'equipment', 'rentals', 'reviews', 'saved', 'verification_codes', 'settings', 'audit_logs']) collections[name] = db.collection(name);
+  await collections.users.createIndex({ email: 1 }, { unique: true });
+  await collections.users.createIndex({ phone: 1 }, { sparse: true });
+  await collections.verification_codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+  await collections.saved.createIndex({ userId: 1, equipmentId: 1 }, { unique: true });
+  await collections.settings.updateOne({ _id: 'platform' }, { $setOnInsert: INITIAL_SETTINGS }, { upsert: true });
+  const settings = await collections.settings.findOne({ _id: 'platform' });
+  (globalThis as any).__farmshareSettings = settings || INITIAL_SETTINGS;
+  if ((await collections.equipment.countDocuments()) === 0) await collections.equipment.insertMany(SEED_EQUIPMENT.map(x => ({ ...x, createdAt: iso(), updatedAt: iso() })));
+  console.log(`[FarmShare] MongoDB connected: ${dbName}`);
+}
+
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: 'mongodb', timestamp: iso() }));
+app.get('/api/system/status', async (_req, res) => {
+  let dbStatus = 'disconnected';
+  try { await db.command({ ping: 1 }); dbStatus = 'connected'; } catch {}
+  res.json({ status: 'operational', database: { provider: 'MongoDB Atlas', databaseName: dbName, status: dbStatus }, emailService: { provider: 'Gmail SMTP', configured: Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASS) } });
+});
+
+// ---------- Authentication ----------
+app.get('/api/auth/check-user', async (req, res) => {
+  const email = normalizeEmail(String(req.query.email || ''));
+  if (!email) return res.status(400).json({ exists: false, error: 'Email is required.' });
+  res.json({ exists: !!(await collections.users.findOne({ email })) });
+});
+
+app.post('/api/auth/send-verification-code', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const name = String(req.body?.name || 'Farmer').trim();
+  const purpose = req.body?.purpose === 'reset' ? 'reset' : 'signup';
+  if (!email || !email.includes('@')) return res.status(400).json({ success: false, error: 'Valid email is required.' });
+  if (purpose === 'reset' && !(await collections.users.findOne({ email }))) return res.status(404).json({ success: false, error: 'No account found with this email.' });
+  if (purpose === 'signup' && (await collections.users.findOne({ email }))) return res.status(409).json({ success: false, error: 'An account already exists with this email.' });
+  const code = String(crypto.randomInt(100000, 1000000));
+  await collections.verification_codes.deleteMany({ email, purpose });
+  await collections.verification_codes.insertOne({ email, purpose, codeHash: hashCode(code), attempts: 0, createdAt: now(), expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
+  const subject = purpose === 'reset' ? `${code} is your FarmShare password reset code` : `${code} is your FarmShare verification code`;
+  const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;border:1px solid #e7e5e4;border-radius:16px"><h2 style="color:#166534">FarmShare ${purpose === 'reset' ? 'Password Reset' : 'Email Verification'}</h2><p>Hello ${name.replace(/[<>]/g, '')},</p><p>Your verification code is:</p><div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#15803d;text-align:center;padding:18px;background:#f0fdf4;border-radius:12px">${code}</div><p>This code expires in 10 minutes.</p></div>`;
+  try {
+    const sent = await sendEmail(email, subject, html, `Your FarmShare code is ${code}. It expires in 10 minutes.`);
+    if (!sent) return res.status(503).json({ success: false, smtpConfigured: false, error: 'Email service is not configured on the server.' });
+    return res.json({ success: true, emailDispatched: true, smtpConfigured: true, message: `Verification code sent to ${email}.` });
+  } catch (error: any) {
+    console.error('[FarmShare Email]', error?.message || error);
+    return res.status(502).json({ success: false, smtpConfigured: true, error: 'Could not send the email. Check Gmail App Password and SMTP settings.' });
   }
-} catch {
-  // Ignore if .env does not exist
-}
+});
 
-interface CodeRecord {
-  code: string;
-  expiresAt: number;
-  attempts: number;
-}
+app.post('/api/auth/verify-code', async (req, res) => {
+  const email = normalizeEmail(req.body?.email); const code = String(req.body?.code || '').trim();
+  const record = await collections.verification_codes.findOne({ email }, { sort: { createdAt: -1 } });
+  if (!record) return res.status(400).json({ verified: false, error: 'No pending verification code found.' });
+  if (new Date(record.expiresAt).getTime() < Date.now()) { await collections.verification_codes.deleteOne({ _id: record._id }); return res.status(400).json({ verified: false, error: 'Verification code has expired.' }); }
+  if (record.attempts >= 5) return res.status(400).json({ verified: false, error: 'Too many incorrect attempts. Request a new code.' });
+  if (record.codeHash !== hashCode(code)) { await collections.verification_codes.updateOne({ _id: record._id }, { $inc: { attempts: 1 } }); return res.status(400).json({ verified: false, error: 'Invalid verification code.' }); }
+  await collections.verification_codes.deleteOne({ _id: record._id });
+  res.json({ verified: true, message: 'Email verified successfully.' });
+});
 
-const activeCodes = new Map<string, CodeRecord>();
+app.post('/api/auth/register', async (req, res) => {
+  const email = normalizeEmail(req.body?.email); const password = String(req.body?.password || ''); const name = String(req.body?.name || 'Farmer').trim();
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  if (await collections.users.findOne({ email })) return res.status(409).json({ error: 'An account is already registered with this email.' });
+  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(normalizeEmail).filter(Boolean);
+  const ownerEmails = (process.env.OWNER_EMAILS || '').split(',').map(normalizeEmail).filter(Boolean);
+  const role = adminEmails.includes(email) ? 'admin' : ownerEmails.includes(email) ? 'owner' : 'customer';
+  const user = { uid: makeId('user'), displayName: name || 'Farmer', email, phone: req.body?.phone || '', address: '', photoURL: `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(name)}`, role, isVerified: true, createdAt: iso(), updatedAt: iso(), passwordHash: await bcrypt.hash(password, 12) };
+  await collections.users.insertOne(user);
+  res.status(201).json({ user: publicUser(user), token: tokenFor(user) });
+});
 
-// Initialize email transporter if valid credentials exist
-function isLikelyEmail(str: string): boolean {
-  return typeof str === 'string' && str.includes('@') && str.includes('.');
-}
+app.post('/api/auth/login', async (req, res) => {
+  const email = normalizeEmail(req.body?.email); const password = String(req.body?.password || '');
+  const user = await collections.users.findOne({ email });
+  if (!user || !user.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) return res.status(401).json({ error: 'Incorrect email or password.' });
+  res.json({ user: publicUser(user), token: tokenFor(user) });
+});
 
-function isLikelyHost(str: string): boolean {
-  return typeof str === 'string' && (str.includes('.') || str === 'localhost') && isNaN(Number(str));
-}
+app.post('/api/auth/reset-password', async (req, res) => {
+  const email = normalizeEmail(req.body?.email); const password = String(req.body?.newPassword || '');
+  const user = await collections.users.findOne({ email });
+  if (!user) return res.status(404).json({ error: 'Account not found.' });
+  await collections.users.updateOne({ _id: user._id }, { $set: { passwordHash: await bcrypt.hash(password, 12), updatedAt: iso(), isVerified: true } });
+  const updated = await collections.users.findOne({ _id: user._id });
+  res.json({ user: publicUser(updated), token: tokenFor(updated) });
+});
 
-function resolveEmailCredentials() {
-  const candidatesUser = [
-    process.env.GMAIL_USER,
-    process.env.SMTP_USER,
-    process.env.EMAIL_USER,
-    "yd499398@gmail.com"
-  ];
-  const user = (candidatesUser.find(u => u && isLikelyEmail(u.trim())) || "yd499398@gmail.com").trim();
+app.post('/api/auth/google-profile', async (req, res) => {
+  const email = normalizeEmail(req.body?.email); if (!email) return res.status(400).json({ error: 'Google email is required.' });
+  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(normalizeEmail).filter(Boolean);
+  const existing = await collections.users.findOne({ email });
+  const user = existing || { uid: makeId('google'), email, displayName: String(req.body?.displayName || email.split('@')[0]), phone: '', address: '', photoURL: req.body?.photoURL || '', role: adminEmails.includes(email) ? 'admin' : 'customer', isVerified: true, createdAt: iso() };
+  await collections.users.updateOne({ email }, { $set: { ...user, displayName: req.body?.displayName || user.displayName, photoURL: req.body?.photoURL || user.photoURL, updatedAt: iso() }, $setOnInsert: { email } }, { upsert: true });
+  const saved = await collections.users.findOne({ email });
+  res.json({ user: publicUser(saved), token: tokenFor(saved) });
+});
 
-  const candidatesPass = [
-    process.env.GMAIL_APP_PASS,
-    process.env.SMTP_PASS,
-    process.env.GMAIL_PASS,
-    process.env.EMAIL_PASS,
-    "uvju ngyz uges ckvy"
-  ];
-  const rawPass = (candidatesPass.find(p => p && p.trim().length >= 8) || "uvju ngyz uges ckvy").trim();
-  const pass = rawPass.replace(/\s+/g, ''); // 16-character standard Gmail App Password format
+app.patch('/api/auth/profile', auth, async (req: AuthRequest, res) => {
+  const updates = { displayName: String(req.body?.displayName || '').trim(), phone: String(req.body?.phone || '').trim(), address: String(req.body?.address || '').trim(), updatedAt: iso() };
+  const result = await collections.users.findOneAndUpdate({ uid: req.user!.uid }, { $set: updates }, { returnDocument: 'after' });
+  if (!result) return res.status(404).json({ error: 'User not found.' });
+  res.json({ user: publicUser(result) });
+});
+app.patch('/api/auth/password', auth, async (req: AuthRequest, res) => {
+  const password = String(req.body?.newPassword || '');
+  await collections.users.updateOne({ uid: req.user!.uid }, { $set: { passwordHash: await bcrypt.hash(password, 12), updatedAt: iso() } });
+  res.json({ success: true });
+});
 
-  return { user, pass };
-}
+// ---------- App data ----------
+app.get('/api/app/equipment', async (_req, res) => res.json({ success: true, data: await collections.equipment.find({}).sort({ createdAt: -1 }).toArray() }));
+app.post('/api/app/equipment', auth, async (req: AuthRequest, res) => {
+  const body = req.body || {};
+  const item = { ...body, id: Number(body.id) || Date.now(), ownerId: req.user!.uid, owner: req.user!.displayName || body.owner || 'Farmer', ownerEmail: req.user!.email, createdAt: iso(), updatedAt: iso() };
+  await collections.equipment.insertOne(item);
+  res.status(201).json({ success: true, data: item });
+});
 
-function createTransporter() {
-  const host = (process.env.SMTP_HOST || process.env.EMAIL_HOST || "").trim();
-  const { user, pass } = resolveEmailCredentials();
+app.get('/api/app/rentals', async (req, res) => {
+  const query: any = {}; if (req.query.userId) query.userId = String(req.query.userId);
+  res.json({ success: true, data: await collections.rentals.find(query).sort({ createdAt: -1 }).toArray() });
+});
+app.post('/api/app/rentals', async (req, res) => {
+  const body = req.body || {}; const equipment = body.equipment;
+  if (!equipment?.id || !body.startDate || !body.endDate) return res.status(400).json({ error: 'Equipment and rental dates are required.' });
+  const rental = { ...body, id: body.id || makeId('rental'), status: body.status || 'pending', hasReviewed: false, createdAt: body.createdAt || iso(), updatedAt: iso() };
+  await collections.rentals.insertOne(rental);
+  res.status(201).json({ success: true, data: rental });
+});
+app.patch('/api/app/rentals/:id', async (req, res) => {
+  const result = await collections.rentals.findOneAndUpdate({ id: req.params.id }, { $set: { ...req.body, updatedAt: iso() } }, { returnDocument: 'after' });
+  if (!result) return res.status(404).json({ error: 'Rental not found.' });
+  res.json({ success: true, data: result });
+});
 
-  // Gmail SMTP service
-  if (isLikelyEmail(user) && pass && pass.length >= 4) {
-    console.log(`[FarmShare Auth] Configuring Gmail transporter for: ${user}`);
-    return nodemailer.createTransport({
-      service: "gmail",
-      auth: { user, pass },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-  }
+app.get('/api/app/reviews', async (_req, res) => res.json({ success: true, data: await collections.reviews.find({}).sort({ createdAt: -1 }).toArray() }));
+app.post('/api/app/reviews', async (req, res) => {
+  const review = { ...req.body, id: req.body.id || makeId('review'), createdAt: req.body.createdAt || iso() };
+  await collections.reviews.insertOne(review);
+  if (review.bookingId) await collections.rentals.updateOne({ id: review.bookingId }, { $set: { hasReviewed: true, updatedAt: iso() } });
+  res.status(201).json({ success: true, data: review });
+});
 
-  // Custom SMTP relay
-  if (isLikelyHost(host) && user && pass && pass.length >= 4) {
-    console.log(`[FarmShare Auth] Configuring custom SMTP transporter: ${host}`);
-    return nodemailer.createTransport({
-      host,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === "true" || process.env.SMTP_PORT === "465",
-      auth: { user, pass },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-  }
+app.get('/api/app/saved', async (req, res) => {
+  const userId = String(req.query.userId || ''); if (!userId) return res.json({ success: true, data: [] });
+  res.json({ success: true, data: await collections.saved.find({ userId }).toArray() });
+});
+app.put('/api/app/saved/:userId/:equipmentId', async (req, res) => {
+  const item = { userId: req.params.userId, equipmentId: String(req.params.equipmentId), createdAt: iso() };
+  await collections.saved.updateOne({ userId: item.userId, equipmentId: item.equipmentId }, { $setOnInsert: item }, { upsert: true });
+  res.json({ success: true });
+});
+app.delete('/api/app/saved/:userId/:equipmentId', async (req, res) => {
+  await collections.saved.deleteOne({ userId: req.params.userId, equipmentId: String(req.params.equipmentId) });
+  res.json({ success: true });
+});
 
-  return null;
-}
+app.post('/api/system/clear-database', auth, adminOnly, async (_req, res) => {
+  for (const name of ['users', 'rentals', 'reviews', 'saved', 'verification_codes']) await collections[name].deleteMany({});
+  await collections.equipment.deleteMany({});
+  await collections.equipment.insertMany(SEED_EQUIPMENT.map(x => ({ ...x, createdAt: iso(), updatedAt: iso() })));
+  res.json({ success: true, message: 'MongoDB application data cleared and seed equipment restored.' });
+});
 
-let mailTransporter = createTransporter();
+// ---------- Basic marketplace pricing endpoint ----------
+app.post('/api/marketplace/calculate-price', async (req, res) => {
+  const { pricePerDay, days, deliveryFee, securityDeposit, category } = req.body || {};
+  res.json({ success: true, data: calculatePrice(Number(pricePerDay), Number(days), Number(deliveryFee || 0), Number(securityDeposit || 0), category || 'Other') });
+});
+app.get('/api/marketplace/commission', async (_req, res) => res.json({ success: true, data: (globalThis as any).__farmshareSettings }));
+app.post('/api/marketplace/commission', auth, adminOnly, async (req: AuthRequest, res) => {
+  const current = await collections.settings.findOne({ _id: 'platform' }) || INITIAL_SETTINGS;
+  const newRate = Math.max(2.5, Number(req.body?.defaultRate ?? current.defaultCommissionRate));
+  const next = { ...current, defaultCommissionRate: newRate, feeModel: req.body?.feeModel || current.feeModel, updatedAt: iso() };
+  await collections.settings.replaceOne({ _id: 'platform' }, next, { upsert: true });
+  (globalThis as any).__farmshareSettings = next;
+  await collections.audit_logs.insertOne({ id: makeId('audit'), adminEmail: req.user!.email, oldRate: current.defaultCommissionRate, newRate, changedAt: iso(), reason: req.body?.reason || 'Commission settings updated' });
+  res.json({ success: true, data: next });
+});
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => { console.error(err); res.status(500).json({ error: 'Internal server error.' }); });
 
-  app.use(express.json());
-
-  // Mount Marketplace API router
-  app.use("/api/marketplace", marketplaceRouter);
-
-  // API routes FIRST
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-  });
-
-  // System & Database Diagnostic Status
-  app.get("/api/system/status", (req, res) => {
-    const { user } = resolveEmailCredentials();
-    const hasActiveTransporter = !!(mailTransporter || createTransporter());
-    res.json({
-      status: "operational",
-      server: {
-        uptimeSeconds: Math.round(process.uptime()),
-        nodeVersion: process.version,
-        environment: process.env.NODE_ENV || "development"
-      },
-      emailService: {
-        provider: "Gmail SMTP",
-        configuredUser: user,
-        transporterActive: hasActiveTransporter,
-        deliveryMode: "live_smtp"
-      },
-      database: {
-        provider: "Google Cloud Firestore",
-        databaseId: "ai-studio-farmshare-3cb9f439-5b2d-4d64-a1b9-1a6c31d3a03e",
-        projectId: "infinite-palisade-ldpgw",
-        collections: ["equipment", "rentals", "reviews", "saved", "verification_codes"],
-        status: "connected"
-      },
-      activeOtpsInFlight: activeCodes.size
-    });
-  });
-
-  // Verification Code Send Endpoint
-  app.post("/api/auth/send-verification-code", async (req, res) => {
-    try {
-      const { email, name, purpose } = req.body || {};
-      if (!email || typeof email !== "string") {
-        return res.status(400).json({ success: false, error: "Valid email is required." });
-      }
-
-      const cleanEmail = email.trim().toLowerCase();
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-      activeCodes.set(cleanEmail, {
-        code,
-        expiresAt,
-        attempts: 0
-      });
-
-      const isReset = purpose === 'reset';
-      console.log(`[FarmShare Auth] 📧 ${isReset ? 'Password Reset' : 'Registration'} OTP generated for ${cleanEmail}: ${code}`);
-
-      // Attempt sending actual email if transporter is available
-      let emailDispatched = false;
-      let smtpConfigured = false;
-      const activeTransporter = mailTransporter || createTransporter();
-
-      if (activeTransporter) {
-        smtpConfigured = true;
-        try {
-          // Send real email with 12-second timeout
-          const { user: senderEmail } = resolveEmailCredentials();
-          const emailSubject = isReset 
-            ? `${code} is your FarmShare password reset code`
-            : `${code} is your FarmShare verification code`;
-          const headingTitle = isReset ? "Password Reset" : "Email Verification";
-          const subtitleText = isReset 
-            ? "Authorize resetting your farmer account password" 
-            : "Complete your farmer account registration";
-          const bodyDescription = isReset
-            ? `Hello ${name || 'Farmer'},<br/><br/>We received a request to reset your password for your FarmShare account. Enter this 6-digit code on FarmShare to verify your identity and set your new password.<br/><br/>If you did not request this, you can safely ignore this email.`
-            : `Hello ${name || 'Farmer'},<br/><br/>Enter this 6-digit code on FarmShare to verify your email and complete setting up your account.`;
-
-          await Promise.race([
-            activeTransporter.sendMail({
-              from: `"FarmShare Network" <${senderEmail}>`,
-              to: cleanEmail,
-              subject: emailSubject,
-              text: `Your FarmShare ${isReset ? 'password reset' : 'verification'} code is ${code}. It expires in 10 minutes.`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e7e5e4; border-radius: 16px; background-color: #ffffff;">
-                  <div style="text-align: center; margin-bottom: 20px;">
-                    <div style="display: inline-block; background-color: #15803d; color: #ffffff; padding: 10px 18px; border-radius: 12px; font-weight: bold; font-size: 20px;">
-                      🚜 FarmShare
-                    </div>
-                    <h2 style="color: #1c1917; margin-top: 14px; margin-bottom: 4px;">${headingTitle}</h2>
-                    <p style="color: #78716c; font-size: 13px; margin: 0;">${subtitleText}</p>
-                  </div>
-                  <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
-                    <p style="color: #166534; font-size: 13px; margin-top: 0; margin-bottom: 8px; font-weight: 600;">Your 6-Digit ${isReset ? 'Password Reset' : 'Verification'} Code:</p>
-                    <div style="font-size: 34px; font-weight: 900; letter-spacing: 6px; color: #15803d; font-family: monospace;">
-                      ${code}
-                    </div>
-                    <p style="color: #166534; font-size: 11px; margin-bottom: 0; margin-top: 10px;">Expires in 10 minutes</p>
-                  </div>
-                  <p style="color: #57534e; font-size: 13px; line-height: 1.5; margin: 0;">
-                    ${bodyDescription}
-                  </p>
-                </div>
-              `
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP delivery timeout (12000ms)")), 12000))
-          ]);
-          emailDispatched = true;
-          console.log(`[FarmShare Auth] ✅ Email successfully dispatched to ${cleanEmail}`);
-        } catch (mailErr: any) {
-          console.warn(`[FarmShare Auth] ⚠️ Gmail SMTP authentication error:`, mailErr?.message || mailErr);
-          emailDispatched = false;
-        }
-      } else {
-        smtpConfigured = false;
-        console.log(`[FarmShare Auth] ℹ️ Transporter not configured with valid email credentials. Code saved for verification.`);
-      }
-
-      return res.json({
-        success: true,
-        email: cleanEmail,
-        emailDispatched,
-        smtpConfigured,
-        message: emailDispatched 
-          ? `A 6-digit ${isReset ? 'password reset' : 'confirmation'} code has been dispatched to your Gmail inbox (${cleanEmail}). Please check your inbox and spam folder.`
-          : `We could not deliver the email to (${cleanEmail}). Please check your email address or try again in a few moments.`
-      });
-    } catch (e: any) {
-      console.error("Error generating verification code:", e);
-      return res.status(500).json({ success: false, error: e.message || "Failed to generate code." });
-    }
-  });
-
-  // Verification Code Validation Endpoint
-  app.post("/api/auth/verify-code", (req, res) => {
-    try {
-      const { email, code } = req.body || {};
-      if (!email || !code) {
-        return res.status(400).json({ verified: false, error: "Email and code are required." });
-      }
-
-      const cleanEmail = String(email).trim().toLowerCase();
-      const cleanCode = String(code).trim();
-      const record = activeCodes.get(cleanEmail);
-
-      if (!record) {
-        return res.status(400).json({ verified: false, error: "No pending verification code found for this email. Please request a new code." });
-      }
-
-      if (Date.now() > record.expiresAt) {
-        activeCodes.delete(cleanEmail);
-        return res.status(400).json({ verified: false, error: "Verification code has expired. Please request a new one." });
-      }
-
-      if (record.code !== cleanCode) {
-        record.attempts += 1;
-        if (record.attempts >= 5) {
-          activeCodes.delete(cleanEmail);
-          return res.status(400).json({ verified: false, error: "Too many incorrect attempts. Please request a new code." });
-        }
-        return res.status(400).json({ verified: false, error: `Invalid verification code (${5 - record.attempts} attempts remaining).` });
-      }
-
-      // Valid code
-      activeCodes.delete(cleanEmail);
-      return res.json({ verified: true, message: "Email verified successfully." });
-    } catch (err: any) {
-      return res.status(500).json({ verified: false, error: err.message || "Verification failed." });
-    }
-  });
-
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
-}
-
-startServer();
+bootstrap().then(() => {
+  app.listen(PORT, '0.0.0.0', () => console.log(`[FarmShare] API listening on port ${PORT}`));
+}).catch(error => { console.error('[FarmShare] Startup failed:', error); process.exit(1); });

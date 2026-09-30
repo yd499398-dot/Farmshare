@@ -6,15 +6,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Tractor, Search, MapPin, Calendar, Star, DollarSign, IndianRupee, Wrench, Menu, X, ChevronRight, CheckCircle2, ShieldCheck, MessageSquare, Download, Heart, AlertCircle, Sparkles, UserCheck, BarChart3, Eye, EyeOff, Lock, Mail, User as UserIcon, KeyRound, RotateCw, ArrowLeft, Database, Terminal, LogOut, FileText, Check, Clock, Bookmark, TrendingUp, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, googleProvider, signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, db, handleFirestoreError, OperationType, testConnection } from './lib/firebase';
-import type { User } from './lib/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { auth, googleProvider, signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged } from './lib/firebase';
 import { CalendarPicker } from './components/CalendarPicker';
 import { RentalEarningsDashboard } from './components/RentalEarningsDashboard';
+import { UserProfileModal } from './components/UserProfileModal';
+import { PasswordRequirementsIndicator } from './components/PasswordRequirementsIndicator';
 import { generateRentalReceiptPDF } from './lib/pdfReceipt';
-import { getSavedSession, saveSession, clearSession, registerManualUser, loginManualUser, resetPasswordManualUser, loginAsGoogleUser, requestVerificationCode, verifyCode, checkUserExists } from './lib/manualAuth';
+import { getSavedSession, saveSession, clearSession, registerManualUser, loginManualUser, resetPasswordManualUser, loginAsGoogleUser, requestVerificationCode, verifyCode, checkUserExists, clearAllWebsiteDataAndLogins, updateManualUserProfile, validateStrongPassword } from './lib/manualAuth';
 import { resolveEquipmentImage, handleImageError, DEFAULT_CATEGORY_IMAGES } from './lib/equipmentImages';
+import { apiFetch } from './lib/api';
 
 export interface Equipment {
   id: number;
@@ -152,6 +152,7 @@ interface AppUserProfile {
   displayName: string | null;
   email: string | null;
   phone?: string | null;
+  address?: string | null;
   photoURL?: string | null;
   role?: 'customer' | 'owner' | 'admin';
 }
@@ -172,6 +173,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [listModalOpen, setListModalOpen] = useState(false);
   const [showAuthPage, setShowAuthPage] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [signupStep, setSignupStep] = useState<'form' | 'otp'>('form');
   const [pendingSignupData, setPendingSignupData] = useState<{ name: string; email: string; password: string; role?: 'customer' | 'owner' | 'admin' } | null>(null);
@@ -181,6 +183,7 @@ export default function App() {
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isResendingOtp, setIsResendingOtp] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [authNotice, setAuthNotice] = useState('');
   const [isSigningInWithGoogle, setIsSigningInWithGoogle] = useState(false);
@@ -238,12 +241,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
-  // Firestore connection test and Auth state observer
+  // Restore the local session and load all application data from the Render/MongoDB API.
   useEffect(() => {
-    testConnection();
-
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
+      if (currentUser && !getSavedSession()) {
         setUser({
           uid: currentUser.uid,
           displayName: currentUser.displayName || currentUser.email?.split('@')[0] || "Farmer",
@@ -257,52 +258,18 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Sync Equipment from Firestore
   useEffect(() => {
-    const q = collection(db, 'equipment');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (snapshot.empty) {
-        // Seed initial equipment to Firestore
-        INITIAL_EQUIPMENT.forEach(async (item) => {
-          try {
-            await setDoc(doc(db, 'equipment', item.id.toString()), {
-              ...item,
-              createdAt: new Date().toISOString()
-            });
-          } catch (e) {
-            console.warn('Seeding item warning:', e);
-          }
-        });
+    const loadEquipment = async () => {
+      try {
+        const result = await apiFetch<{ data: Equipment[] }>('/api/app/equipment');
+        const items = (result.data || []).map(item => ({ ...item, image: resolveEquipmentImage(item.image, item.category) }));
+        setEquipmentList(items.length ? items : INITIAL_EQUIPMENT);
+      } catch (error) {
+        console.warn('MongoDB equipment load note:', error);
         setEquipmentList(INITIAL_EQUIPMENT);
-      } else {
-        const items: Equipment[] = [];
-        snapshot.forEach(docSnap => {
-          const data = docSnap.data();
-          items.push({
-            id: Number(data.id) || Number(docSnap.id) || Date.now(),
-            name: data.name,
-            category: data.category,
-            price: Number(data.price),
-            location: data.location || "Local Area",
-            address: data.address || data.location || "Farmstead Yard, GT Road",
-            owner: data.owner || "Local Farmer",
-            ownerId: data.ownerId || '',
-            ownerPhone: data.ownerPhone || "+91 98251 44102",
-            ownerEmail: data.ownerEmail || "owner@farmshare.in",
-            rating: Number(data.rating) || 5.0,
-            image: resolveEquipmentImage(data.image, data.category),
-            description: data.description || ""
-          });
-        });
-        setEquipmentList(items);
       }
-    }, (error) => {
-      console.warn("Firestore equipment snapshot note:", error);
-      // Fallback to initial equipment if offline
-      setEquipmentList(INITIAL_EQUIPMENT);
-    });
-
-    return () => unsubscribe();
+    };
+    loadEquipment();
   }, []);
 
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
@@ -315,96 +282,25 @@ export default function App() {
   ]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Sync Rentals from Firestore
+  // Load rentals, reviews and saved items from MongoDB.
   useEffect(() => {
-    const q = collection(db, 'rentals');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: Rental[] = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        list.push({
-          id: docSnap.id,
-          equipment: data.equipment,
-          startDate: data.startDate,
-          endDate: data.endDate,
-          totalCost: Number(data.totalCost),
-          status: (data.status || 'pending') as RentalStatus,
-          hasReviewed: !!data.hasReviewed,
-          userId: data.userId,
-          userEmail: data.userEmail,
-          renterName: data.renterName || data.userName,
-          renterPhone: data.renterPhone,
-          ownerId: data.ownerId || data.equipment?.ownerId,
-          ownerName: data.ownerName || data.equipment?.owner,
-          createdAt: data.createdAt,
-          acceptedAt: data.acceptedAt
-        });
-      });
-      if (list.length > 0) {
-        setRentals(list);
+    const loadData = async () => {
+      try {
+        const userId = user?.uid ? `?userId=${encodeURIComponent(user.uid)}` : '';
+        const [rentalsRes, reviewsRes, savedRes] = await Promise.all([
+          apiFetch<{ data: Rental[] }>(`/api/app/rentals${userId}`),
+          apiFetch<{ data: Review[] }>('/api/app/reviews'),
+          apiFetch<{ data: { equipmentId: string }[] }>(`/api/app/saved${userId}`)
+        ]);
+        setRentals((rentalsRes.data || []) as Rental[]);
+        if (reviewsRes.data?.length) setReviews(reviewsRes.data.map((r: any) => ({ ...r, equipmentId: Number(r.equipmentId) })) as Review[]);
+        setSavedEquipmentIds((savedRes.data || []).map(x => Number(x.equipmentId)));
+      } catch (error) {
+        console.warn('MongoDB data load note:', error);
       }
-    }, (error) => {
-      console.warn("Firestore rentals snapshot note:", error);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // Sync Reviews from Firestore
-  useEffect(() => {
-    const q = collection(db, 'reviews');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: Review[] = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        list.push({
-          id: docSnap.id,
-          equipmentId: Number(data.equipmentId),
-          rating: Number(data.rating),
-          text: data.text,
-          author: data.author,
-          date: data.date,
-          userId: data.userId
-        });
-      });
-      if (list.length > 0) {
-        setReviews(prev => {
-          const combined = [...list];
-          prev.forEach(p => {
-            if (!combined.some(c => c.id === p.id)) {
-              combined.push(p);
-            }
-          });
-          return combined;
-        });
-      }
-    }, (error) => {
-      console.warn("Firestore reviews snapshot note:", error);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // Sync Saved Items from Firestore
-  useEffect(() => {
-    const q = collection(db, 'saved');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const ids: number[] = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data.equipmentId) {
-          ids.push(Number(data.equipmentId));
-        }
-      });
-      if (ids.length > 0) {
-        setSavedEquipmentIds(ids);
-      }
-    }, (error) => {
-      console.warn("Firestore saved snapshot note:", error);
-    });
-
-    return () => unsubscribe();
-  }, []);
+    };
+    loadData();
+  }, [user?.uid]);
 
   const [reviewModalRental, setReviewModalRental] = useState<Rental | null>(null);
   const [receiptModalRental, setReceiptModalRental] = useState<Rental | null>(null);
@@ -481,19 +377,21 @@ export default function App() {
     setRentals(prev => [newRental, ...prev]);
 
     try {
-      await setDoc(doc(db, 'rentals', rentalId), {
-        ...newRental,
-        equipmentId: equipment.id.toString(),
-        equipmentName: equipment.name,
-        userEmail: currentUserProfile.email || 'farmer@agrishare.in',
-        userName: newRental.renterName,
-        renterPhone: newRental.renterPhone,
-        ownerId: newRental.ownerId,
-        ownerName: newRental.ownerName,
-        createdAt: new Date().toISOString()
+      await apiFetch('/api/app/rentals', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...newRental,
+          equipmentId: equipment.id.toString(),
+          equipmentName: equipment.name,
+          userEmail: currentUserProfile.email || 'farmer@agrishare.in',
+          userName: newRental.renterName,
+          renterPhone: newRental.renterPhone,
+          ownerId: newRental.ownerId,
+          ownerName: newRental.ownerName
+        })
       });
     } catch (error) {
-      console.warn('Persisting rental to Firestore note:', error);
+      console.warn('Persisting rental to MongoDB note:', error);
     }
 
     setSelectedEquipment(null);
@@ -508,9 +406,8 @@ export default function App() {
     ));
     setAuthNotice("Rental booking accepted! Booking confirmed and official PDF receipt is ready.");
     try {
-      await updateDoc(doc(db, 'rentals', rentalId), {
-        status: 'accepted',
-        acceptedAt
+      await apiFetch(`/api/app/rentals/${encodeURIComponent(rentalId)}`, {
+        method: 'PATCH', body: JSON.stringify({ status: 'accepted', acceptedAt })
       });
     } catch (error) {
       console.warn("Updating rental to accepted in Firestore note:", error);
@@ -523,8 +420,8 @@ export default function App() {
     ));
     setAuthNotice("Rental request declined.");
     try {
-      await updateDoc(doc(db, 'rentals', rentalId), {
-        status: 'declined'
+      await apiFetch(`/api/app/rentals/${encodeURIComponent(rentalId)}`, {
+        method: 'PATCH', body: JSON.stringify({ status: 'declined' })
       });
     } catch (error) {
       console.warn("Updating rental to declined in Firestore note:", error);
@@ -564,7 +461,7 @@ export default function App() {
   const markAsCompleted = async (rentalId: string) => {
     setRentals(rentals.map(r => r.id === rentalId ? { ...r, status: 'completed' } : r));
     try {
-      await updateDoc(doc(db, 'rentals', rentalId), { status: 'completed' });
+      await apiFetch(`/api/app/rentals/${encodeURIComponent(rentalId)}`, { method: 'PATCH', body: JSON.stringify({ status: 'completed' }) });
     } catch (error) {
       console.warn('Updating rental to completed note:', error);
     }
@@ -591,11 +488,8 @@ export default function App() {
     setRentals(rentals.map(r => r.id === reviewModalRental.id ? { ...r, hasReviewed: true } : r));
 
     try {
-      await setDoc(doc(db, 'reviews', reviewId), {
-        ...newReview,
-        createdAt: new Date().toISOString()
-      });
-      await updateDoc(doc(db, 'rentals', reviewModalRental.id), { hasReviewed: true });
+      await apiFetch('/api/app/reviews', { method: 'POST', body: JSON.stringify({ ...newReview, bookingId: reviewModalRental.id, createdAt: new Date().toISOString() }) });
+      await apiFetch(`/api/app/rentals/${encodeURIComponent(reviewModalRental.id)}`, { method: 'PATCH', body: JSON.stringify({ hasReviewed: true }) });
     } catch (error) {
       console.warn('Persisting review note:', error);
     }
@@ -608,24 +502,18 @@ export default function App() {
   const toggleSaveEquipment = async (equipmentId: number) => {
     const isSaved = savedEquipmentIds.includes(equipmentId);
     const userId = user?.uid || 'local_guest';
-    const docId = `saved_${userId}_${equipmentId}`;
 
     if (isSaved) {
       setSavedEquipmentIds(prev => prev.filter(id => id !== equipmentId));
       try {
-        await deleteDoc(doc(db, 'saved', docId));
+        await apiFetch(`/api/app/saved/${encodeURIComponent(userId)}/${equipmentId}`, { method: 'DELETE' });
       } catch (e) {
         console.warn('Removing saved item note:', e);
       }
     } else {
       setSavedEquipmentIds(prev => [...prev, equipmentId]);
       try {
-        await setDoc(doc(db, 'saved', docId), {
-          id: docId,
-          userId: userId,
-          equipmentId: String(equipmentId),
-          createdAt: new Date().toISOString()
-        });
+        await apiFetch(`/api/app/saved/${encodeURIComponent(userId)}/${equipmentId}`, { method: 'PUT' });
       } catch (e) {
         console.warn('Persisting saved item note:', e);
       }
@@ -642,10 +530,46 @@ export default function App() {
     }
     clearSession();
     setUser(null);
+    setIsProfileModalOpen(false);
     setAuthMode('login');
     setAuthEmail('');
     setActiveTab('browse');
     setAuthNotice('You have been signed out.');
+  };
+
+  const handleUpdateUser = (updatedProfile: any) => {
+    setUser(updatedProfile);
+    setAuthNotice(`Profile updated successfully! Welcome, ${updatedProfile.displayName || updatedProfile.email}.`);
+  };
+
+  const handleClearDatabaseAndLogins = async () => {
+    try {
+      // Purge MongoDB application data through the authenticated admin endpoint.
+      await apiFetch('/api/system/clear-database', { method: 'POST' });
+
+      // Clear all stored local sessions, accounts, and auth tokens
+      clearAllWebsiteDataAndLogins();
+      try {
+        if (auth.currentUser) {
+          await firebaseSignOut(auth);
+        }
+      } catch {}
+
+      // 4. Reset component states
+      setUser(null);
+      setRentals([]);
+      setReviews([]);
+      setSavedEquipmentIds([]);
+      setIsProfileModalOpen(false);
+      setActiveTab('browse');
+      setAuthNotice('✨ Database wiped clean and all logins cleared! Fresh start ready.');
+    } catch (err: any) {
+      console.warn('Purge error:', err);
+      clearAllWebsiteDataAndLogins();
+      setUser(null);
+      setIsProfileModalOpen(false);
+      setAuthNotice('Local data and logins cleared.');
+    }
   };
 
   const handleManualAuthSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -656,7 +580,7 @@ export default function App() {
 
     const formData = new FormData(e.currentTarget);
     const identifier = ((formData.get('email') as string) || authEmail || '').trim();
-    const password = ((formData.get('password') as string) || '').trim();
+    const password = ((formData.get('password') as string) || authPassword || '').trim();
     const fullName = ((formData.get('name') as string) || '').trim();
 
     if (!identifier) {
@@ -665,10 +589,19 @@ export default function App() {
       return;
     }
 
-    if (!password || password.length < 4) {
-      setAuthError('Please enter a password with at least 4 characters.');
-      setIsSubmittingAuth(false);
-      return;
+    if (authMode === 'signup' || authMode === 'reset') {
+      const validation = validateStrongPassword(password);
+      if (!validation.isValid) {
+        setAuthError(`Password requirements not met: ${validation.errors.join(' • ')}`);
+        setIsSubmittingAuth(false);
+        return;
+      }
+    } else {
+      if (!password || password.length < 4) {
+        setAuthError('Please enter a valid password.');
+        setIsSubmittingAuth(false);
+        return;
+      }
     }
 
     try {
@@ -977,6 +910,7 @@ export default function App() {
                     setPendingSignupData(null);
                     setAuthError('');
                     setAuthNotice('');
+                    setAuthPassword('');
                   }}
                   className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
                     authMode === 'login' 
@@ -995,6 +929,7 @@ export default function App() {
                     setPendingSignupData(null);
                     setAuthError('');
                     setAuthNotice('');
+                    setAuthPassword('');
                   }}
                   className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
                     authMode === 'signup' 
@@ -1179,7 +1114,7 @@ export default function App() {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-xs font-bold text-stone-600 uppercase tracking-wider">
-                        {authMode === 'reset' ? 'New Password' : 'Password'}
+                        {authMode === 'reset' ? 'Create New Strong Password' : authMode === 'signup' ? 'Create Strong Password' : 'Password'}
                       </label>
                       {authMode === 'login' && (
                         <button
@@ -1190,6 +1125,7 @@ export default function App() {
                             setPendingResetData(null);
                             setAuthError('');
                             setAuthNotice('');
+                            setAuthPassword('');
                           }}
                           className="text-xs text-green-700 hover:text-green-800 font-semibold underline underline-offset-2 cursor-pointer"
                         >
@@ -1203,8 +1139,13 @@ export default function App() {
                         type={showPassword ? "text" : "password"} 
                         name="password" 
                         required 
+                        value={authPassword}
+                        onChange={(e) => {
+                          setAuthPassword(e.target.value);
+                          setAuthError('');
+                        }}
                         className="w-full pl-10 pr-10 py-2.5 border border-stone-200 bg-stone-50 rounded-xl text-stone-900 font-medium placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-600 transition-all text-sm" 
-                        placeholder="••••••••" 
+                        placeholder={authMode === 'login' ? "••••••••" : "e.g. Strong@Farm2026"} 
                       />
                       <button
                         type="button"
@@ -1215,6 +1156,11 @@ export default function App() {
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
+
+                    {/* Compulsory Live Requirements Checklist for creating and adding passwords */}
+                    {(authMode === 'signup' || authMode === 'reset') && (
+                      <PasswordRequirementsIndicator password={authPassword} showAlways={true} />
+                    )}
                   </div>
 
                   {authMode === 'login' && (
@@ -1286,7 +1232,7 @@ export default function App() {
                         console.warn("Google auth notice:", error?.code || error?.message);
                         const emailToUse = (authEmail || '').trim() || 'farmer.google@gmail.com';
                         const nameToUse = emailToUse.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ') || 'Google Farmer';
-                        const googleProfile = loginAsGoogleUser(emailToUse, nameToUse);
+                        const googleProfile = await loginAsGoogleUser(emailToUse, nameToUse, auth.currentUser?.photoURL || undefined);
                         setUser(googleProfile as any);
                         setShowAuthPage(false);
                         setAuthNotice(`Signed in with Google as ${googleProfile.displayName} (${googleProfile.email})`);
@@ -1434,40 +1380,26 @@ export default function App() {
                 </button>
               </div>
 
-              {isSignedIn && (
-                <div className="flex items-center gap-2 pl-2 border-l border-stone-200">
+              {isSignedIn ? (
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="flex items-center gap-2 pl-2.5 py-1 pr-3 rounded-2xl hover:bg-stone-100 border border-stone-200 transition-all cursor-pointer group text-left shadow-2xs ml-1"
+                  title="Open Account Profile & Settings"
+                >
                   {user?.photoURL ? (
                     <img src={user.photoURL} alt={user.displayName || "Farmer"} className="w-8 h-8 rounded-full border border-green-600 object-cover" />
                   ) : (
-                    <div className="w-8 h-8 rounded-full bg-green-100 text-green-800 font-bold text-xs flex items-center justify-center border border-green-300">
+                    <div className="w-8 h-8 rounded-full bg-green-100 text-green-800 font-bold text-xs flex items-center justify-center border border-green-300 group-hover:bg-green-200 transition-colors">
                       {(user?.displayName || user?.email || "F").charAt(0).toUpperCase()}
                     </div>
                   )}
                   <div className="flex flex-col">
-                    <span className="text-xs font-semibold text-stone-700 max-w-[110px] truncate leading-tight">
+                    <span className="text-xs font-bold text-stone-800 max-w-[120px] truncate leading-tight group-hover:text-green-800">
                       {user?.displayName || user?.email?.split('@')[0] || "Farmer"}
                     </span>
-                    {user?.role && user.role !== 'customer' && (
-                      <span className={`text-[9px] font-extrabold uppercase tracking-wider px-1 py-0.2 rounded w-fit ${
-                        user.role === 'admin' 
-                          ? 'bg-stone-900 text-amber-300' 
-                          : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {user.role === 'admin' ? 'Admin' : 'Owner'}
-                      </span>
-                    )}
+                    <span className="text-[10px] text-stone-400 group-hover:text-green-700 font-medium">Profile</span>
                   </div>
-                </div>
-              )}
-
-              {isSignedIn ? (
-                <button 
-                  onClick={handleSignOut}
-                  className="flex items-center gap-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-xs active:scale-95 ml-2"
-                  title="Sign out of your account"
-                >
-                  <LogOut size={14} />
-                  <span>Sign Out</span>
                 </button>
               ) : (
                 <button 
@@ -1522,7 +1454,14 @@ export default function App() {
                 <div className="py-4 px-2 space-y-4 flex flex-col">
                   {/* Distinct User Profile Card */}
                   {isSignedIn && user ? (
-                    <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setIsProfileModalOpen(true);
+                      }}
+                      className="w-full text-left bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-2xl p-4 shadow-xs transition-colors cursor-pointer"
+                    >
                       <div className="flex items-center gap-3">
                         {user.photoURL ? (
                           <img src={user.photoURL} alt="" className="w-12 h-12 rounded-full border-2 border-green-600 object-cover" />
@@ -1532,10 +1471,11 @@ export default function App() {
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between">
                             <h4 className="font-extrabold text-stone-900 text-sm truncate">
                               {user.displayName || 'Farmer Member'}
                             </h4>
+                            <span className="text-[11px] text-green-700 font-bold underline">Edit Profile</span>
                           </div>
                           <p className="text-xs text-stone-500 truncate mt-0.5">
                             {user.email || user.phone || 'Verified Farmer'}
@@ -1551,7 +1491,7 @@ export default function App() {
                           </span>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ) : (
                     <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center justify-between gap-3">
                       <div>
@@ -1647,23 +1587,6 @@ export default function App() {
                       <span>List Your Tool</span>
                     </button>
                   </div>
-
-                  {/* Distinct Sign Out Action at Bottom of Drawer */}
-                  {isSignedIn && (
-                    <div className="pt-3 border-t border-stone-200">
-                      <button 
-                        type="button"
-                        onClick={() => { 
-                          setMobileMenuOpen(false);
-                          handleSignOut();
-                        }}
-                        className="w-full bg-red-50 hover:bg-red-100 text-red-700 border border-red-200/90 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-98"
-                      >
-                        <LogOut size={16} />
-                        <span>Sign Out of AgriShare</span>
-                      </button>
-                    </div>
-                  )}
                 </div>
               </motion.div>
             )}
@@ -2841,10 +2764,7 @@ export default function App() {
                 };
                 setEquipmentList(prev => [newEq, ...prev]);
                 try {
-                  await setDoc(doc(db, 'equipment', newId.toString()), {
-                    ...newEq,
-                    createdAt: new Date().toISOString()
-                  });
+                  await apiFetch('/api/app/equipment', { method: 'POST', body: JSON.stringify(newEq) });
                 } catch (e) {
                   console.warn('Listing equipment save error:', e);
                 }
@@ -2971,6 +2891,18 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Farmer User Profile & Account Settings Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={user}
+        onUpdateUser={handleUpdateUser}
+        onSignOut={handleSignOut}
+        equipmentCount={ownerEquipment.length}
+        rentalsCount={rentals.length}
+        onClearAllData={handleClearDatabaseAndLogins}
+      />
+
       {/* Mobile Farmer Bottom Navigation Bar */}
       <nav 
         aria-label="Mobile Bottom Navigation" 
@@ -3065,13 +2997,13 @@ export default function App() {
           type="button"
           onClick={() => {
             if (isSignedIn) {
-              setMobileMenuOpen(prev => !prev);
+              setIsProfileModalOpen(true);
             } else {
               setShowAuthPage(true);
             }
           }}
           className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer ${
-            mobileMenuOpen ? 'text-green-700 font-extrabold' : 'text-stone-500 hover:text-stone-800 font-medium'
+            isProfileModalOpen ? 'text-green-700 font-extrabold' : 'text-stone-500 hover:text-stone-800 font-medium'
           }`}
         >
           <div className="p-1 rounded-xl flex items-center justify-center">
