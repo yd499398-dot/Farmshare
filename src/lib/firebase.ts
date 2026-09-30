@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
@@ -11,6 +11,9 @@ const firebaseConfig = {
   measurementId: "G-90LB6TBGFB"
 };
 
-const app = initializeApp(firebaseConfig);
+// Prevent re-initialization error during builds
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+export default app;
