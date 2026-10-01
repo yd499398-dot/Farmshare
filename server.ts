@@ -14,7 +14,6 @@ const app = express();
 const PORT = Number(process.env.PORT || 10000);
 const JWT_SECRET = process.env.JWT_SECRET || "farmshare_production_secret_key_2026_secure";
 
-// Initialize Resend safely from environment variables (GitHub secret scanning compliant)
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 
 const mongoUri = process.env.MONGODB_URI;
