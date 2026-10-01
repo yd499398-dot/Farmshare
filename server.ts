@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
@@ -107,26 +108,61 @@ function publicUser(user: any) {
   return safe;
 }
 
-// Resend HTTPS API dispatcher
-async function sendEmail(to: string, subject: string, html: string, text: string) {
-  try {
-    const { data, error } = await resend.emails.send({
-      from: "FarmShare <onboarding@resend.dev>",
-      to: [to],
-      subject,
-      html,
-      text
-    });
-    if (error) {
-      console.warn("[FarmShare Resend Error]:", error);
-      return false;
-    }
-    console.log("[FarmShare Resend Delivered] ID:", data?.id);
-    return true;
-  } catch (err: any) {
-    console.warn("[FarmShare Resend Exception]:", err?.message || err);
-    return false;
+// ---------- Email sending ----------
+// Render's FREE plan blocks SMTP ports, so Gmail SMTP only works on a paid plan / locally.
+// Order of preference: Brevo (HTTPS) -> Resend (HTTPS, needs verified domain for other recipients) -> Gmail SMTP.
+function parseFrom(input: string) {
+  const m = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(input || "");
+  if (m) return { name: m[1].replace(/^"|"$/g, "") || "FarmShare", email: m[2].trim() };
+  return { name: "FarmShare", email: (input || "").trim() };
+}
+
+async function sendEmail(to: string, subject: string, html: string, text: string): Promise<boolean> {
+  const fromRaw = process.env.EMAIL_FROM || (process.env.GMAIL_USER ? `FarmShare <${process.env.GMAIL_USER}>` : "");
+  const from = parseFrom(fromRaw);
+
+  // 1) Brevo - free 300 emails/day, works over HTTPS, sender only needs to be verified (no domain needed)
+  if (process.env.BREVO_API_KEY) {
+    try {
+      const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: { "api-key": process.env.BREVO_API_KEY, "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ sender: from, to: [{ email: to }], subject, htmlContent: html, textContent: text })
+      });
+      const body = await r.text();
+      if (!r.ok) { console.warn("[FarmShare Brevo Error]:", r.status, body); return false; }
+      console.log("[FarmShare Brevo Delivered]:", body);
+      return true;
+    } catch (err: any) { console.warn("[FarmShare Brevo Exception]:", err?.message || err); return false; }
   }
+
+  // 2) Resend - only delivers to arbitrary recipients if you verified a domain and set EMAIL_FROM to it
+  if (process.env.RESEND_API_KEY && process.env.RESEND_FROM) {
+    try {
+      const { data, error } = await resend.emails.send({ from: process.env.RESEND_FROM, to: [to], subject, html, text });
+      if (error) { console.warn("[FarmShare Resend Error]:", error); return false; }
+      console.log("[FarmShare Resend Delivered] ID:", data?.id);
+      return true;
+    } catch (err: any) { console.warn("[FarmShare Resend Exception]:", err?.message || err); return false; }
+  }
+
+  // 3) Gmail SMTP (blocked on Render free plan)
+  const gmailPass = (process.env.GMAIL_APP_PASS || "").replace(/\s+/g, "");
+  if (process.env.GMAIL_USER && gmailPass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com", port: 465, secure: true,
+        auth: { user: process.env.GMAIL_USER, pass: gmailPass },
+        connectionTimeout: 10000, socketTimeout: 15000
+      });
+      await transporter.sendMail({ from: fromRaw || process.env.GMAIL_USER, to, subject, html, text });
+      console.log("[FarmShare Gmail Delivered]:", to);
+      return true;
+    } catch (err: any) { console.warn("[FarmShare Gmail Exception]:", err?.message || err); return false; }
+  }
+
+  console.warn("[FarmShare Email] No email provider configured. Set BREVO_API_KEY (recommended).");
+  return false;
 }
 
 function calculatePrice(pricePerDay: number, days: number, deliveryFee = 0, securityDeposit = 0, category = "Other") {
@@ -194,7 +230,7 @@ app.get("/api/system/status", async (_req, res) => {
   res.json({
     status: "operational",
     database: { provider: "MongoDB Atlas", databaseName: dbName, status: dbStatus },
-    emailService: { provider: "Resend HTTPS API", configured: true }
+    emailService: { provider: process.env.BREVO_API_KEY ? "Brevo HTTPS API" : process.env.RESEND_API_KEY && process.env.RESEND_FROM ? "Resend" : process.env.GMAIL_USER ? "Gmail SMTP" : "none", configured: Boolean(process.env.BREVO_API_KEY || (process.env.RESEND_API_KEY && process.env.RESEND_FROM) || (process.env.GMAIL_USER && process.env.GMAIL_APP_PASS)) }
   });
 });
 
@@ -219,7 +255,6 @@ app.post("/api/auth/send-verification-code", async (req, res) => {
     email,
     purpose,
     codeHash: hashCode(code),
-    codePlain: code,
     attempts: 0,
     createdAt: now(),
     expiresAt: new Date(Date.now() + 15 * 60 * 1000)
@@ -228,20 +263,18 @@ app.post("/api/auth/send-verification-code", async (req, res) => {
   const subject = purpose === "reset" ? `${code} is your FarmShare password reset code` : `${code} is your FarmShare verification code`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;border:1px solid #e7e5e4;border-radius:16px"><h2 style="color:#166534">FarmShare Verification</h2><p>Hello ${name.replace(/[<>]/g, "")},</p><p>Your code is:</p><div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#15803d;text-align:center;padding:18px;background:#f0fdf4;border-radius:12px">${code}</div><p>Expires in 15 minutes.</p></div>`;
 
-  sendEmail(email, subject, html, `Your FarmShare code is ${code}`)
-    .then((sent) => console.log(`[FarmShare Email Dispatched]: ${email} -> ${sent}`))
-    .catch((err) => console.warn(`[FarmShare Resend Error]:`, err?.message || err));
+  const devBypass = process.env.DEV_OTP_BYPASS === "true";
+  const sent = await sendEmail(email, subject, html, `Your FarmShare code is ${code}`);
+  console.log(`[FarmShare Email Dispatched]: ${email} -> ${sent}`);
 
-  console.log("==================================================");
-  console.log(`[FARMSHARE LIVE OTP] CODE FOR ${email} IS: ${code}`);
-  console.log("==================================================");
-
-  return res.json({ 
-    success: true, 
-    emailDispatched: true, 
-    smtpConfigured: true, 
-    bypassCode: code,
-    message: `Verification code sent to ${email}.` 
+  if (!sent && !devBypass) {
+    return res.status(502).json({ success: false, emailDispatched: false, error: "Could not send the verification email. Please try again in a moment." });
+  }
+  return res.json({
+    success: true,
+    emailDispatched: sent,
+    ...(devBypass ? { bypassCode: code } : {}),
+    message: `Verification code sent to ${email}.`
   });
 });
 
@@ -249,25 +282,20 @@ app.post("/api/auth/verify-code", async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const code = String(req.body?.code || "").trim();
 
-  // Universal master bypass key
-  if (code === "123456") {
+  if (process.env.DEV_OTP_BYPASS === "true" && code === "123456") {
     await collections.verification_codes.deleteMany({ email });
     return res.json({ verified: true, message: "Email verified successfully." });
   }
 
   const record = await collections.verification_codes.findOne({ email }, { sort: { createdAt: -1 } });
-
-  if (record && (record.codeHash === hashCode(code) || record.codePlain === code)) {
-    await collections.verification_codes.deleteOne({ _id: record._id });
-    return res.json({ verified: true, message: "Email verified successfully." });
+  if (record && record.expiresAt > new Date() && record.attempts < 5) {
+    if (record.codeHash === hashCode(code)) {
+      await collections.verification_codes.deleteOne({ _id: record._id });
+      return res.json({ verified: true, message: "Email verified successfully." });
+    }
+    await collections.verification_codes.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
   }
-
-  if (/^\d{6}$/.test(code)) {
-    await collections.verification_codes.deleteMany({ email });
-    return res.json({ verified: true, message: "Email verified successfully." });
-  }
-
-  return res.status(400).json({ verified: false, error: "Invalid verification code." });
+  return res.status(400).json({ verified: false, error: "Invalid or expired verification code." });
 });
 
 app.post("/api/auth/register", async (req, res) => {
@@ -354,7 +382,7 @@ app.post("/api/auth/google-profile", async (req, res) => {
 
   await collections.users.updateOne(
     { email },
-    { $set: { ...user, displayName: (req.body?.displayName \vert{}\vert{} user.displayName), photoURL: (req.body?.photoURL \vert{}\vert{} user.photoURL), updatedAt: iso() }, $setOnInsert: { email } },
+    { $set: { ...user, displayName: (req.body?.displayName || user.displayName), photoURL: (req.body?.photoURL || user.photoURL), updatedAt: iso() }, $setOnInsert: { email } },
     { upsert: true }
   );
 

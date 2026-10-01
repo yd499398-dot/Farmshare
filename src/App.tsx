@@ -1226,16 +1226,24 @@ export default function App() {
                       setAuthNotice('');
                       setIsSigningInWithGoogle(true);
                       try {
-                        await signInWithPopup(auth, googleProvider);
-                        setShowAuthPage(false);
-                      } catch (error: any) {
-                        console.warn("Google auth notice:", error?.code || error?.message);
-                        const emailToUse = (authEmail || '').trim() || 'farmer.google@gmail.com';
-                        const nameToUse = emailToUse.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ') || 'Google Farmer';
-                        const googleProfile = await loginAsGoogleUser(emailToUse, nameToUse, auth.currentUser?.photoURL || undefined);
+                        const result = await signInWithPopup(auth, googleProvider);
+                        const gUser = result.user;
+                        if (!gUser.email) throw new Error('Your Google account did not return an email address.');
+                        const googleProfile = await loginAsGoogleUser(
+                          gUser.email,
+                          gUser.displayName || gUser.email.split('@')[0],
+                          gUser.photoURL || undefined
+                        );
                         setUser(googleProfile as any);
                         setShowAuthPage(false);
-                        setAuthNotice(`Signed in with Google as ${googleProfile.displayName} (${googleProfile.email})`);
+                      } catch (error: any) {
+                        console.error("Google sign-in failed:", error?.code, error?.message);
+                        const code = error?.code || '';
+                        if (code === 'auth/unauthorized-domain') setAuthError('Google sign-in is not enabled for this website yet. Add this site\'s domain under Firebase > Authentication > Settings > Authorized domains.');
+                        else if (code === 'auth/operation-not-allowed') setAuthError('Google sign-in is not enabled in Firebase. Enable the Google provider under Authentication > Sign-in method.');
+                        else if (code === 'auth/popup-blocked') setAuthError('Your browser blocked the Google popup. Allow popups for this site and try again.');
+                        else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') setAuthError('');
+                        else setAuthError(error?.message || 'Google sign-in failed. Please try again.');
                       } finally {
                         setIsSigningInWithGoogle(false);
                       }
