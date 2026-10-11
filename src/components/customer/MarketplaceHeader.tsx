@@ -47,7 +47,7 @@ export const MarketplaceHeader: React.FC<MarketplaceHeaderProps> = ({
             </div>
             <div>
               <div className="text-xl sm:text-2xl font-black tracking-tight text-stone-900 leading-none flex items-center gap-1.5">
-                <span>AgriShare</span>
+                <span>FarmShare</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">Marketplace</span>
               </div>
               <div className="text-[11px] text-stone-500 font-medium tracking-tight mt-0.5 hidden sm:block">
@@ -324,7 +324,7 @@ export const MarketplaceHeader: React.FC<MarketplaceHeaderProps> = ({
               onClick={() => { setMobileMenuOpen(false); onSelectTab('how-it-works'); }}
               className="w-full text-left py-2 px-3 text-sm font-medium text-stone-700 hover:bg-stone-50 rounded-lg"
             >
-              How AgriShare Works
+              How FarmShare Works
             </button>
             {user && (
               <button
