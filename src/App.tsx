@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Tractor, Search, MapPin, Calendar, Star, DollarSign, IndianRupee, Wrench, Menu, X, ChevronRight, CheckCircle2, ShieldCheck, MessageSquare, Download, Heart, AlertCircle, Sparkles, UserCheck, BarChart3, Eye, EyeOff, Lock, Mail, User as UserIcon, KeyRound, RotateCw, ArrowLeft, Database, Terminal, LogOut, FileText, Check, Clock, Bookmark, TrendingUp, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -342,7 +337,7 @@ export default function App() {
     let currentUserProfile = user;
     if (!currentUserProfile) {
       const chosenName = renterInfo?.name?.trim() || "Farmer Renter";
-      const cleanEmail = renterInfo?.email?.trim() || `${chosenName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'farmer'}@agrishare.in`;
+      const cleanEmail = renterInfo?.email?.trim() || `${chosenName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'farmer'}@farmshare.in`;
       const guestProfile: AppUserProfile = {
         uid: 'farmer_' + Date.now(),
         displayName: chosenName,
@@ -366,7 +361,7 @@ export default function App() {
       status: 'pending', // Goes to pending option until owner accepts it!
       hasReviewed: false,
       userId: currentUserProfile.uid,
-      userEmail: currentUserProfile.email || 'farmer@agrishare.in',
+      userEmail: currentUserProfile.email || 'farmer@farmshare.in',
       renterName: renterInfo?.name || currentUserProfile.displayName || 'Farmer Renter',
       renterPhone: renterInfo?.phone || currentUserProfile.phone || '',
       ownerId: equipment.ownerId || 'seed_robert',
@@ -383,7 +378,7 @@ export default function App() {
           ...newRental,
           equipmentId: equipment.id.toString(),
           equipmentName: equipment.name,
-          userEmail: currentUserProfile.email || 'farmer@agrishare.in',
+          userEmail: currentUserProfile.email || 'farmer@farmshare.in',
           userName: newRental.renterName,
           renterPhone: newRental.renterPhone,
           ownerId: newRental.ownerId,
