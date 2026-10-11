@@ -33,8 +33,8 @@ export const MarketplaceHeader: React.FC<MarketplaceHeaderProps> = ({
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200">
       {/* Top Banner Notice for rural farmers */}
       <div className="bg-emerald-950 text-emerald-200 text-xs py-1.5 px-4 text-center font-medium flex items-center justify-center gap-2">
-        <span className="hidden sm:inline">🌾 AgriShare India: Verified tractors, farmland, combines & machinery for rent.</span>
-        <span className="sm:hidden">🌾 AgriShare: Verified tractors & farm rentals.</span>
+        <span className="hidden sm:inline">🌾 Farmshare India: Verified tractors, farmland, combines & machinery for rent.</span>
+        <span className="sm:hidden">🌾 Farmshare: Verified tractors & farm rentals.</span>
         <span className="text-emerald-400 font-bold">· 2.5% Standard Platform Fee</span>
       </div>
 
