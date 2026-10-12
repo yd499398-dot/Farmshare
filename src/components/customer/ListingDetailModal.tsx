@@ -338,7 +338,7 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
                   <h4 className="font-bold text-stone-900 text-sm">Rental Policies & Transparency</h4>
                   <ul className="space-y-2 list-disc list-inside">
                     <li><strong>Security Deposit:</strong> {formatPrice(listing.securityDeposit)} held securely in escrow and refunded within 24 hours of return inspection.</li>
-                    <li><strong>Platform Fee:</strong> 2.5% platform fee covers AgriShare payment protection, equipment escrow, and verified support.</li>
+                    <li><strong>Platform Fee:</strong> 2.5% platform fee covers FarmShare payment protection, equipment escrow, and verified support.</li>
                     <li><strong>Cancellation Policy:</strong> 100% refund if cancelled at least 24 hours before the rental start date.</li>
                     <li><strong>Maintenance & Fuel:</strong> Machine is supplied in ready-to-run condition with standard oil and greasing included. Diesel to be refilled by renter or billed on return.</li>
                   </ul>
@@ -471,7 +471,7 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
                   {/* Explicit Platform Fee disclosure (2.5%) */}
                   <div className="flex justify-between text-emerald-800 font-medium pt-1 border-t border-stone-100">
                     <span className="flex items-center gap-1">
-                      <span>AgriShare Platform Fee (2.5%)</span>
+                      <span>FarmShare Platform Fee (2.5%)</span>
                       <Info size={12} className="text-emerald-700" title="Includes escrow protection & payment security" />
                     </span>
                     <span className="font-bold">{formatPrice(platformFee)}</span>

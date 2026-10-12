@@ -698,7 +698,7 @@ export default function App() {
       setSignupStep('form');
       setPendingSignupData(null);
       setOtpInput('');
-      setAuthNotice(`🎉 Email confirmed! Welcome to AgriShare, ${newUser.displayName || 'Farmer'}!`);
+      setAuthNotice(`🎉 Email confirmed! Welcome to FarmShare, ${newUser.displayName || 'Farmer'}!`);
     } catch (err: any) {
       console.warn("Registration completion error:", err);
       setAuthError(err.message || 'Failed to complete registration. Please try again.');
@@ -1196,7 +1196,7 @@ export default function App() {
                         <span>Continue &amp; Verify Email Code</span>
                       </div>
                     ) : (
-                      <span>Sign In to AgriShare</span>
+                      <span>Sign In to FarmShare</span>
                     )}
                   </button>
                 </form>
@@ -1285,7 +1285,7 @@ export default function App() {
             </div>
 
             <div className="mt-8 pt-6 border-t border-stone-100 text-center text-xs text-stone-400">
-              AgriShare Farm Portal • Fast direct sign-in for farmers
+              FarmShare Farm Portal • Fast direct sign-in for farmers
             </div>
           </div>
         </div>
@@ -1303,7 +1303,7 @@ export default function App() {
               <div className="bg-green-700 p-2 rounded-lg text-white">
                 <Tractor size={24} />
               </div>
-              <span className="text-xl font-bold tracking-tight text-green-900">AgriShare</span>
+              <span className="text-xl font-bold tracking-tight text-green-900">FarmShare</span>
             </div>
             
             {/* Desktop Nav */}
@@ -1498,7 +1498,7 @@ export default function App() {
                   ) : (
                     <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center justify-between gap-3">
                       <div>
-                        <h4 className="font-bold text-green-950 text-sm">Welcome to AgriShare</h4>
+                        <h4 className="font-bold text-green-950 text-sm">Welcome to FarmShare</h4>
                         <p className="text-xs text-green-800 mt-0.5">Sign in to book machines or list your equipment</p>
                       </div>
                       <button
@@ -2149,9 +2149,9 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2 text-white">
             <Tractor size={24} className="text-green-500" />
-            <span className="text-xl font-bold tracking-tight">AgriShare</span>
+            <span className="text-xl font-bold tracking-tight">FarmShare</span>
           </div>
-          <p className="text-sm">© {new Date().getFullYear()} AgriShare Community. Empowering local farmers.</p>
+          <p className="text-sm">© {new Date().getFullYear()} FarmShare Community. Empowering local farmers.</p>
           <div className="flex gap-4">
             <a href="#" className="hover:text-white transition-colors">Terms</a>
             <a href="#" className="hover:text-white transition-colors">Privacy</a>
@@ -2304,7 +2304,7 @@ export default function App() {
                         <span>Call Owner: {selectedEquipment.ownerPhone || "+91 98251 44102"}</span>
                       </a>
                       <a
-                        href={`https://wa.me/${(selectedEquipment.ownerPhone || "919825144102").replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${selectedEquipment.owner}, I found your ${selectedEquipment.name} on AgriShare and I would like to rent it.`)}`}
+                        href={`https://wa.me/${(selectedEquipment.ownerPhone || "919825144102").replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${selectedEquipment.owner}, I found your ${selectedEquipment.name} on FarmShare and I would like to rent it.`)}`}
                         target="_blank"
                         rel="noreferrer"
                         className="bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs active:scale-[0.98]"
@@ -2393,7 +2393,7 @@ export default function App() {
                             </div>
                             <div>
                               <p className="font-bold text-stone-900">{user.displayName || "Farmer"}</p>
-                              <p className="text-stone-500 text-[11px]">{user.email || "farmer@agrishare.local"}</p>
+                              <p className="text-stone-500 text-[11px]">{user.email || "farmer@farmshare.local"}</p>
                             </div>
                           </div>
                           <span className="text-[11px] text-green-700 font-semibold bg-green-50 px-2 py-1 rounded-md">

@@ -494,7 +494,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               title="Sign out of your account"
             >
               <LogOut size={16} />
-              <span>Sign Out of AgriShare</span>
+              <span>Sign Out of FarmShare</span>
             </button>
 
             {/* Clear Database & All Logins (Fresh Start) button */}

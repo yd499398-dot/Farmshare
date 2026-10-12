@@ -52,7 +52,7 @@ export function generateRentalReceiptPDF(data: RentalReceiptData): void {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
-  doc.text('AGRISHARE COMMUNITY', 14, 18);
+  doc.text('FARMSHARE COMMUNITY', 14, 18);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
@@ -204,7 +204,7 @@ export function generateRentalReceiptPDF(data: RentalReceiptData): void {
 
   currentY += 7;
   doc.text('Community Damage Protection Shield', 18, currentY);
-  doc.text('Included by AgriShare', 110, currentY);
+  doc.text('Included by FarmShare', 110, currentY);
   doc.setTextColor(21, 128, 61);
   doc.setFont('helvetica', 'bold');
   doc.text('FREE', pageWidth - 20, currentY, { align: 'right' });
@@ -240,20 +240,20 @@ export function generateRentalReceiptPDF(data: RentalReceiptData): void {
   doc.setTextColor(21, 128, 61);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.text('AGRISHARE VERIFIED FARMER TRANSACTION', 20, currentY + 8);
+  doc.text('FARMSHARE VERIFIED FARMER TRANSACTION', 20, currentY + 8);
 
   doc.setTextColor(71, 85, 105);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.text('• Rental dates: ' + data.startDate + ' to ' + data.endDate + ' (' + diffDays + ' calendar days).', 20, currentY + 14);
   doc.text('• Equipment must be operated safely and returned in the same condition as received.', 20, currentY + 19);
-  doc.text('• In case of emergency assistance, contact your local AgriShare community representative.', 20, currentY + 24);
+  doc.text('• In case of emergency assistance, contact your local FarmShare community representative.', 20, currentY + 24);
 
   // Footer
   doc.setTextColor(148, 163, 184);
   doc.setFontSize(7.5);
-  doc.text('AgriShare Community Platform • Rural Equipment Access for Every Farmer • Generated on ' + new Date().toLocaleString(), pageWidth / 2, 287, { align: 'center' });
+  doc.text('FarmShare Community Platform • Rural Equipment Access for Every Farmer • Generated on ' + new Date().toLocaleString(), pageWidth / 2, 287, { align: 'center' });
 
   // Save the PDF
-  doc.save(`AgriShare_Receipt_${data.id}.pdf`);
+  doc.save(`FarmShare_Receipt_${data.id}.pdf`);
 }
